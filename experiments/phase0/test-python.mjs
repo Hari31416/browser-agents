@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({executablePath:process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
+const page = await browser.newPage();
+page.on('console', m => console.log('console:',m.text()));
+page.on('pageerror', e => console.log('pageerror:',e.message));
+await page.goto('http://127.0.0.1:5173/python.html');
+await page.waitForFunction(() => window.phase0Result, {timeout:180000});
+const result = await page.evaluate(() => window.phase0Result);
+console.log(JSON.stringify(result,null,2));
+if (!result.ok || result.result !== 'mean=4.0' || result.pngBytes < 1000 || result.pyFetch !== 200 || result.jsFetch !== 200) throw new Error('Python probe failed');
+console.log('browser',browser.version());
+await browser.close();

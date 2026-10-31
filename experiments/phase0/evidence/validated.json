@@ -1,0 +1,128 @@
+{
+  "date": "2026-10-31",
+  "results": {
+    "framework": {
+      "browser": "156.0.8078.74",
+      "candidate": "Deep Agents browser export",
+      "supported": false,
+      "error": "Uncaught ReferenceError: process is not defined",
+      "uncompressedWorkerBytes": 1650995,
+      "decision": "Use the bounded explicit browser loop demonstrated by the protocol and real-provider probes"
+    },
+    "isolated": {
+      "browser": "156.0.8078.74",
+      "measurement": "Fresh browser contexts; local pinned assets on warm filesystem; not CDN/download cold-start or unique resident memory.",
+      "samples": [
+        {
+          "assetsMs": 39,
+          "readyMs": 2744,
+          "totalMs": 2836,
+          "assetBytes": 30975885,
+          "wasmCapacityBytes": 113115136,
+          "versions": {
+            "python": "3.14.2",
+            "numpy": "2.4.6",
+            "pandas": "3.0.2",
+            "matplotlib": "3.10.8"
+          },
+          "analysisWasmCapacityBytes": 113115136,
+          "pngBytes": 19819,
+          "browserProcessesRssKiBSum": 2056736,
+          "cancelMs": 0,
+          "networkProbeOutcomes": {
+            "python_http": "blocked",
+            "js_fetch": "blocked",
+            "javascript": {
+              "nativeFetch": "blocked",
+              "xhr": "blocked",
+              "websocket": "blocked",
+              "webtransport": "blocked",
+              "eventsource": "blocked",
+              "scriptImport": "blocked",
+              "remoteWorker": "blocked",
+              "nestedWorker": "blocked",
+              "indexedDB": "blocked",
+              "relay": "blocked",
+              "storageDirectory": "blocked",
+              "parent": "undefined",
+              "localStorage": "undefined"
+            }
+          },
+          "checks": [
+            "analysis",
+            "png",
+            "startup-denial",
+            "python-and-js-egress",
+            "nested-worker",
+            "opaque-storage",
+            "cross-chat",
+            "hostile-output-validation",
+            "paths",
+            "errors",
+            "infinite-loop-cancel",
+            "OPFS-reopen",
+            "fresh-interpreter"
+          ]
+        },
+        {
+          "assetsMs": 37,
+          "readyMs": 2773,
+          "totalMs": 2864,
+          "assetBytes": 30975885,
+          "wasmCapacityBytes": 113115136,
+          "versions": {
+            "python": "3.14.2",
+            "numpy": "2.4.6",
+            "pandas": "3.0.2",
+            "matplotlib": "3.10.8"
+          }
+        },
+        {
+          "assetsMs": 39,
+          "readyMs": 2776,
+          "totalMs": 2865,
+          "assetBytes": 30975885,
+          "wasmCapacityBytes": 113115136,
+          "versions": {
+            "python": "3.14.2",
+            "numpy": "2.4.6",
+            "pandas": "3.0.2",
+            "matplotlib": "3.10.8"
+          }
+        }
+      ]
+    },
+    "protocol": {
+      "browser": "156.0.8078.74",
+      "checks": [
+        "planning-file-loop",
+        "fragmented-utf8-CRLF-multiline-SSE",
+        "authentication-error-redaction",
+        "wrong-content-type",
+        "malformed-stream",
+        "truncated-stream",
+        "client-abort-upstream-propagation",
+        "timeout",
+        "origin-rejection",
+        "session-rejection"
+      ],
+      "relay": {
+        "requests": 10,
+        "completed": 3,
+        "aborted": 7
+      }
+    },
+    "provider": {
+      "browser": "156.0.8078.74",
+      "ok": true,
+      "tools": [
+        "write_todos",
+        "read_file",
+        "write_file"
+      ],
+      "planItems": 2,
+      "resultFile": "Synthetic input copied exactly",
+      "relayRequests": 4
+    }
+  }
+}

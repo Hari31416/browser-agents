@@ -1,6 +1,6 @@
 # Browser agents
 
-Status: initial scope agreed; technical validation pending. Working name: browser-agents.
+Status: Phase 0 feasibility validated on desktop Chrome; MVP implementation pending. Working name: browser-agents.
 
 ## What we want to build
 
@@ -125,11 +125,12 @@ not need further product decisions before an initial compatibility prototype.
 
 - TypeScript for the agent runtime; React, Vite, and pnpm for the demo UI.
 - Run orchestration outside the UI thread in a Web Worker.
-- Evaluate Deep Agents' TypeScript package before committing to a framework.
-  Browser compatibility and dependency bundling need an executable test.
+- Use the explicit browser-worker loop selected in Phase 0. The tested Deep
+  Agents browser bundle failed on Node dependencies; see the technical findings.
 - Keep model access, tool execution, storage, and UI behind separate interfaces.
 - Evaluate OPFS for workspace files and IndexedDB for chat and run records.
-- Evaluate Pyodide as the first Python execution runtime in a dedicated worker.
+- Use Pyodide with approved assets supplied to an isolated iframe/worker,
+  preserving the no-network boundary validated in Phase 0.
   Node execution and WebContainers are outside the initial Python scope.
 - Evaluate a WebGPU model backend when local inference enters scope.
 - Use a small local model relay. Accept endpoint configuration from the trusted
@@ -138,8 +139,9 @@ not need further product decisions before an initial compatibility prototype.
 - The relay forwards model requests and streams responses. The browser owns
   the agent loop, file processing, and Python execution.
 - FastAPI, Pydantic, uv, Black, and standard logging are the proposed relay stack.
-- Evaluate Testbed's AI SDK patterns alongside Deep Agents before choosing
-  the runtime framework. See [reference notes](docs/testbed-reference.md).
+- Retain Testbed's provider setup interaction as a reference. See the
+  [reference notes](docs/testbed-reference.md) and
+  [Phase 0 technical findings](docs/technical-findings.md).
 
 ## Boundaries to resolve
 
@@ -186,11 +188,14 @@ network requirement, revise it before treating automatic Python as ready.
 
 ## Current scope
 
-This repository currently contains planning documents only. The first demo is
-general-purpose chat with uploaded files and browser-side Python execution.
-Remote models use a local relay with user-configured OpenAI-compatible endpoints.
-The agent framework and Python isolation mechanism remain to be validated.
-Subagents, arbitrary package installation, and local inference are deferred.
+This repository contains planning documents and executable Phase 0 experiments.
+The explicit browser-worker loop, isolated Python execution, streaming relay,
+real-provider round trip, and recovery probes have passed on the declared target.
+See [experiment commands and evidence](experiments/phase0/README.md).
+
+The MVP chat UI, workspace database, provider setup, reusable TypeScript package,
+and production relay remain to be implemented. Subagents, arbitrary package
+installation, and local inference are deferred.
 
 Useful references:
 

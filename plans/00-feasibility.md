@@ -1,6 +1,6 @@
 # Phase 00: Validate the hard constraints
 
-Status: planned.
+Status: complete for the tested desktop Chrome configuration. See [technical findings](../docs/technical-findings.md).
 
 ## Outcome
 
@@ -10,28 +10,29 @@ the full application.
 
 ## Work
 
-- [ ] Build a minimal browser-worker bundle using Deep Agents' TypeScript
-  package. Exercise planning, an in-memory file tool, and a fake model adapter.
-  Identify Node-only imports, incompatible storage assumptions, and bundle cost.
-- [ ] If it cannot meet the requirements cleanly, evaluate Testbed's AI SDK
+- [x] Evaluate a minimal browser-worker bundle using Deep Agents' TypeScript
+  package. Record its Node dependency startup failures and bundle size.
+  Exercise planning and in-memory file tools with the selected fallback loop;
+  Deep Agents itself could not start in this configuration.
+- [x] If it cannot meet the requirements cleanly, evaluate Testbed's AI SDK
   approach or a small explicit loop against the same tool and event contracts.
   Record why the selected approach is sufficient. Do not maintain two runtimes.
-- [ ] Prove one real streamed model/tool round trip through a disposable local
+- [x] Prove one real streamed model/tool round trip through a disposable local
   relay. Keep credentials outside the worker executing generated code. Use fake
   streams for deterministic development and user-supplied credentials for the
   real check; do not commit keys or private prompts.
-- [ ] Load Pyodide with NumPy, pandas, and matplotlib. Read an input file,
+- [x] Load Pyodide with NumPy, pandas, and matplotlib. Read an input file,
   calculate a result, and return a PNG and text output without freezing the UI.
-- [ ] Evaluate a separate execution origin or equivalent enforceable boundary.
+- [x] Evaluate a separate execution origin or equivalent enforceable boundary.
   Document the role of iframe sandboxing, worker policy, CSP, asset loading,
   message validation, and denial of network paths. Treat these as candidates
   to test, not an assumption that one header provides a complete sandbox.
-- [ ] Test Python HTTP attempts, JavaScript fetch and other available network
+- [x] Test Python HTTP attempts, JavaScript fetch and other available network
   channels, access to the relay, cross-chat files, and credential storage.
   Test after approved packages load and during interpreter startup.
-- [ ] Stop an infinite loop by terminating execution. Confirm the trusted UI
+- [x] Stop an infinite loop by terminating execution. Confirm the trusted UI
   can recover and files already persisted outside the interpreter remain intact.
-- [ ] Measure cold startup and basic memory behavior on the development device.
+- [x] Measure cold startup and basic memory behavior on the development device.
 
 ## Deliverables
 
@@ -53,3 +54,16 @@ If isolation fails, investigate a stricter browser execution design. Do not
 replace browser execution with a server or allow network access without a
 product-scope decision. Foundation work may proceed, but automatic Python
 execution cannot be declared ready while this requirement is unresolved.
+
+## Recorded result
+
+The selected explicit agent loop passed deterministic and real-provider tests
+inside a browser worker. Pyodide with approved packages passed integrated opaque
+iframe/worker network, storage, cross-chat, output-validation, cancellation, and
+file-recovery probes. Startup and basic memory observations are recorded.
+
+Reproduce with `pnpm assets`, `pnpm build`, and `pnpm test:all` from
+`experiments/phase0`, after installing locked dependencies and configuring the
+ignored project-root `OPENAI_*` environment file. See the technical findings for
+measurements, evidence, compatibility adjustments, and prototype limitations.
+Production implementation and revalidation remain later phases.

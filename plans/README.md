@@ -1,7 +1,7 @@
 # Implementation plan
 
-Status: planned. These documents describe implementation work; they do not
-claim that any component has been built or validated.
+Status: Phase 00 feasibility complete for the tested desktop Chrome configuration.
+Phases 01–06 remain planned. See the technical findings for actual evidence.
 
 The [project outline](../README.md) defines the agreed scope. The
 [Testbed notes](../docs/testbed-reference.md) describe useful reference patterns.
