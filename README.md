@@ -158,6 +158,9 @@ and an application that can start without contacting a server.
 
 ## First milestones
 
+The [phase-by-phase implementation plan](plans/README.md) breaks these milestones
+into work items, dependencies, and completion checks.
+
 1. Validate browser execution of the candidate agent framework, including
    planning, file tools, and one streamed tool-call round trip through the relay.
 2. Validate Python isolation with approved packages, workspace file exchange,
