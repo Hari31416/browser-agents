@@ -12,7 +12,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node test/path.test.mjs && node test/records.test.mjs && node test/workspace.test.mjs && node test/staging.test.mjs && node test/concurrency.test.mjs && node test/storage-detection.test.mjs"
   },
   "devDependencies": {
     "typescript": "^5.8.0"
