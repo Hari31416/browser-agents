@@ -1,0 +1,25 @@
+{
+  "name": "browser-agents-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "pnpm install && cd backend && uv venv --python /opt/homebrew/bin/python3 && uv pip install -e \".[dev]\"",
+    "dev": "concurrently -n \"relay,demo\" -c \"blue,green\" \"pnpm dev:relay\" \"pnpm dev:demo\"",
+    "dev:relay": "cd backend && .venv/bin/uvicorn relay.main:app --host 127.0.0.1 --port 8765 --reload",
+    "dev:demo": "pnpm --filter demo dev",
+    "build": "./node_modules/.bin/tsc -b packages/workspace packages/python packages/runtime && pnpm --filter demo build",
+    "format": "cd backend && .venv/bin/black src tests",
+    "format:check": "cd backend && .venv/bin/black --check src tests",
+    "typecheck": "./node_modules/.bin/tsc -b packages/workspace packages/python packages/runtime apps/demo",
+    "test": "pnpm test:backend && pnpm test:runtime",
+    "test:backend": "cd backend && .venv/bin/pytest",
+    "test:runtime": "pnpm --filter \"@browser-agents/runtime\" test",
+    "test:all": "pnpm test:backend && pnpm test:runtime",
+    "check": "pnpm format:check && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.0"
+  }
+}
