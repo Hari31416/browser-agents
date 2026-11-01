@@ -1,8 +1,7 @@
 # Implementation plan
 
-Status: Phase 00 feasibility complete for the tested desktop Chrome configuration.
-Phases 01–06 remain planned and unimplemented. Work stops after the Phase 00
-follow-up and plan updates; Phase 01 has not started.
+Status: Phase 00 feasibility and Phase 01 foundation and relay complete.
+Phases 02–06 remain planned. Work proceeds next to Phase 02: Workspace and records.
 
 The [project outline](../README.md) defines the agreed scope. The
 [Testbed notes](../docs/testbed-reference.md) describe useful reference patterns.
