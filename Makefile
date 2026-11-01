@@ -1,0 +1,209 @@
+SHELL := /bin/bash
+
+# Load environment variables from .env file if it exists
+ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
+
+PNPM ?= /opt/homebrew/bin/pnpm
+BACKEND_DIR := backend
+FRONTEND_DIR := apps/demo
+RUN_DIR := .run
+
+RELAY_HOST ?= 127.0.0.1
+RELAY_PORT ?= 8765
+FRONTEND_PORT ?= 5173
+
+RELAY_PID := $(RUN_DIR)/relay.pid
+FRONTEND_PID := $(RUN_DIR)/frontend.pid
+RELAY_LOG := $(RUN_DIR)/relay.log
+FRONTEND_LOG := $(RUN_DIR)/frontend.log
+
+.DEFAULT_GOAL := help
+
+.PHONY: help setup start stop restart app-start app-stop app-restart \
+	start-relay stop-relay start-frontend stop-frontend \
+	dev relay frontend status health logs logs-relay logs-frontend clean-logs \
+	check test test-backend test-workspace test-runtime typecheck format format-check build clean
+
+help:
+	@echo "Browser Agents - Available Commands"
+	@echo "==================================="
+	@echo ""
+	@echo "Full Stack (Background):"
+	@echo "  make start            - Start model relay and demo frontend in background"
+	@echo "  make stop             - Stop all background services"
+	@echo "  make restart          - Restart all background services"
+	@echo ""
+	@echo "Services (Background):"
+	@echo "  make start-relay      - Start model relay in background"
+	@echo "  make stop-relay       - Stop model relay"
+	@echo "  make start-frontend   - Start demo frontend in background"
+	@echo "  make stop-frontend    - Stop demo frontend"
+	@echo ""
+	@echo "Interactive Development (Foreground):"
+	@echo "  make dev              - Run model relay and frontend together in foreground"
+	@echo "  make relay            - Run model relay in foreground"
+	@echo "  make frontend         - Run demo frontend in foreground"
+	@echo ""
+	@echo "Logs & Status:"
+	@echo "  make status           - Show process status and running PIDs"
+	@echo "  make health           - Health check for model relay API"
+	@echo "  make logs             - Show log file paths"
+	@echo "  make logs-relay       - View model relay logs (follow)"
+	@echo "  make logs-frontend    - View demo frontend logs (follow)"
+	@echo "  make clean-logs       - Remove local log files"
+	@echo ""
+	@echo "Quality & Testing:"
+	@echo "  make check            - Run format check, typecheck, and all test suites"
+	@echo "  make test             - Run all test suites"
+	@echo "  make test-backend     - Run backend pytest suite"
+	@echo "  make test-workspace   - Run workspace storage and staging test suite"
+	@echo "  make test-runtime     - Run runtime package tests"
+	@echo "  make typecheck        - Run TypeScript compiler checks"
+	@echo "  make format           - Format backend Python code with black"
+	@echo "  make format-check     - Check backend Python formatting"
+	@echo ""
+	@echo "Build & Setup:"
+	@echo "  make setup            - Install dependencies and create Python venv"
+	@echo "  make build            - Build all TypeScript packages and demo app"
+	@echo "  make clean            - Remove build artifacts and temporary files"
+
+# ---------------------------------------------------------------------------
+# Setup & Build
+# ---------------------------------------------------------------------------
+
+setup:
+	$(PNPM) run setup
+
+build:
+	$(PNPM) run build
+
+clean: clean-logs
+	rm -rf packages/*/dist packages/*/*.tsbuildinfo apps/*/dist apps/*/*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Foreground Development
+# ---------------------------------------------------------------------------
+
+dev:
+	$(PNPM) run dev
+
+relay:
+	cd $(BACKEND_DIR) && .venv/bin/uvicorn relay.main:app --host $(RELAY_HOST) --port $(RELAY_PORT) --reload
+
+frontend:
+	cd $(FRONTEND_DIR) && $(PNPM) dev --host $(RELAY_HOST) --port $(FRONTEND_PORT)
+
+# ---------------------------------------------------------------------------
+# Background Process Management
+# ---------------------------------------------------------------------------
+
+start: start-relay start-frontend
+
+stop: stop-frontend stop-relay
+
+restart: stop start
+
+app-start: start
+app-stop: stop
+app-restart: restart
+
+start-relay:
+	@mkdir -p $(RUN_DIR)
+	@if [ -f $(RELAY_PID) ] && kill -0 $$(cat $(RELAY_PID)) 2>/dev/null; then \
+		echo "Model relay already running with PID $$(cat $(RELAY_PID))"; \
+	else \
+		cd $(BACKEND_DIR) && nohup .venv/bin/uvicorn relay.main:app --host $(RELAY_HOST) --port $(RELAY_PORT) > ../$(RELAY_LOG) 2>&1 & echo $$! > ../$(RELAY_PID); \
+		echo "Model relay started in background (PID: $$(cat $(RELAY_PID)))"; \
+	fi
+
+stop-relay:
+	@if [ -f $(RELAY_PID) ] && kill -0 $$(cat $(RELAY_PID)) 2>/dev/null; then \
+		kill $$(cat $(RELAY_PID)) && rm -f $(RELAY_PID); \
+		echo "Model relay stopped"; \
+	else \
+		rm -f $(RELAY_PID); \
+		echo "Model relay not running"; \
+	fi
+
+start-frontend:
+	@mkdir -p $(RUN_DIR)
+	@if [ -f $(FRONTEND_PID) ] && kill -0 $$(cat $(FRONTEND_PID)) 2>/dev/null; then \
+		echo "Demo frontend already running with PID $$(cat $(FRONTEND_PID))"; \
+	else \
+		cd $(FRONTEND_DIR) && nohup $(PNPM) dev --host $(RELAY_HOST) --port $(FRONTEND_PORT) > ../$(FRONTEND_LOG) 2>&1 & echo $$! > ../$(FRONTEND_PID); \
+		echo "Demo frontend started in background (PID: $$(cat $(FRONTEND_PID)))"; \
+	fi
+
+stop-frontend:
+	@if [ -f $(FRONTEND_PID) ] && kill -0 $$(cat $(FRONTEND_PID)) 2>/dev/null; then \
+		kill $$(cat $(FRONTEND_PID)) && rm -f $(FRONTEND_PID); \
+		echo "Demo frontend stopped"; \
+	else \
+		rm -f $(FRONTEND_PID); \
+		echo "Demo frontend not running"; \
+	fi
+
+status:
+	@printf "%-18s" "Model relay:"
+	@if [ -f $(RELAY_PID) ] && kill -0 $$(cat $(RELAY_PID)) 2>/dev/null; then \
+		echo "running (PID $$(cat $(RELAY_PID))) on http://$(RELAY_HOST):$(RELAY_PORT)"; \
+	else \
+		echo "stopped"; \
+	fi
+	@printf "%-18s" "Demo frontend:"
+	@if [ -f $(FRONTEND_PID) ] && kill -0 $$(cat $(FRONTEND_PID)) 2>/dev/null; then \
+		echo "running (PID $$(cat $(FRONTEND_PID))) on http://$(RELAY_HOST):$(FRONTEND_PORT)"; \
+	else \
+		echo "stopped"; \
+	fi
+
+health:
+	@curl -fsS http://$(RELAY_HOST):$(RELAY_PORT)/api/health || (echo "Relay health check failed" && exit 1)
+	@echo "Relay is healthy"
+
+logs:
+	@echo "Relay log:    $(RELAY_LOG)"
+	@echo "Frontend log: $(FRONTEND_LOG)"
+
+logs-relay:
+	@touch $(RELAY_LOG)
+	@tail -n 100 -f $(RELAY_LOG)
+
+logs-frontend:
+	@touch $(FRONTEND_LOG)
+	@tail -n 100 -f $(FRONTEND_LOG)
+
+clean-logs:
+	rm -rf $(RUN_DIR)
+
+# ---------------------------------------------------------------------------
+# Quality & Testing
+# ---------------------------------------------------------------------------
+
+format:
+	$(PNPM) run format
+
+format-check:
+	$(PNPM) run format:check
+
+typecheck:
+	$(PNPM) run typecheck
+
+test-backend:
+	$(PNPM) run test:backend
+
+test-workspace:
+	$(PNPM) run test:workspace
+
+test-runtime:
+	$(PNPM) run test:runtime
+
+test:
+	$(PNPM) run test:backend
+	$(PNPM) run test:workspace
+	$(PNPM) run test:runtime
+
+check: format-check typecheck test
