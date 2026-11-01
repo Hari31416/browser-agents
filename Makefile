@@ -7,9 +7,11 @@ ifneq (,$(wildcard .env))
 endif
 
 PNPM ?= /opt/homebrew/bin/pnpm
-BACKEND_DIR := backend
-FRONTEND_DIR := apps/demo
-RUN_DIR := .run
+export PATH := /opt/homebrew/bin:$(PATH)
+ROOT_DIR := $(CURDIR)
+BACKEND_DIR := $(ROOT_DIR)/backend
+FRONTEND_DIR := $(ROOT_DIR)/apps/demo
+RUN_DIR := $(ROOT_DIR)/.run
 
 RELAY_HOST ?= 127.0.0.1
 RELAY_PORT ?= 8765
@@ -25,7 +27,7 @@ FRONTEND_LOG := $(RUN_DIR)/frontend.log
 .PHONY: help setup start stop restart app-start app-stop app-restart \
 	start-relay stop-relay start-frontend stop-frontend \
 	dev relay frontend status health logs logs-relay logs-frontend clean-logs \
-	check test test-backend test-workspace test-runtime typecheck format format-check build clean
+	check test test-backend test-workspace test-python test-python-browser test-runtime typecheck format format-check build clean
 
 help:
 	@echo "Browser Agents - Available Commands"
@@ -60,6 +62,8 @@ help:
 	@echo "  make test             - Run all test suites"
 	@echo "  make test-backend     - Run backend pytest suite"
 	@echo "  make test-workspace   - Run workspace storage and staging test suite"
+	@echo "  make test-python      - Run Python protocol and staging integration tests"
+	@echo "  make test-python-browser - Run Python browser Playwright verification tests"
 	@echo "  make test-runtime     - Run runtime package tests"
 	@echo "  make typecheck        - Run TypeScript compiler checks"
 	@echo "  make format           - Format backend Python code with black"
@@ -91,10 +95,10 @@ dev:
 	$(PNPM) run dev
 
 relay:
-	cd $(BACKEND_DIR) && .venv/bin/uvicorn relay.main:app --host $(RELAY_HOST) --port $(RELAY_PORT) --reload
+	cd $(BACKEND_DIR) && PYTHONPATH=src .venv/bin/uvicorn relay.main:app --host $(RELAY_HOST) --port $(RELAY_PORT) --reload
 
 frontend:
-	cd $(FRONTEND_DIR) && $(PNPM) dev --host $(RELAY_HOST) --port $(FRONTEND_PORT)
+	cd $(FRONTEND_DIR) && ./node_modules/.bin/vite --host $(RELAY_HOST) --port $(FRONTEND_PORT)
 
 # ---------------------------------------------------------------------------
 # Background Process Management
@@ -115,8 +119,15 @@ start-relay:
 	@if [ -f $(RELAY_PID) ] && kill -0 $$(cat $(RELAY_PID)) 2>/dev/null; then \
 		echo "Model relay already running with PID $$(cat $(RELAY_PID))"; \
 	else \
-		cd $(BACKEND_DIR) && nohup .venv/bin/uvicorn relay.main:app --host $(RELAY_HOST) --port $(RELAY_PORT) > ../$(RELAY_LOG) 2>&1 & echo $$! > ../$(RELAY_PID); \
-		echo "Model relay started in background (PID: $$(cat $(RELAY_PID)))"; \
+		cd $(BACKEND_DIR) && PYTHONPATH=src nohup .venv/bin/uvicorn relay.main:app --host $(RELAY_HOST) --port $(RELAY_PORT) > $(RELAY_LOG) 2>&1 & echo $$! > $(RELAY_PID); \
+		sleep 0.5; \
+		if [ -f $(RELAY_PID) ] && kill -0 $$(cat $(RELAY_PID)) 2>/dev/null; then \
+			echo "Model relay started in background (PID: $$(cat $(RELAY_PID)))"; \
+		else \
+			echo "Model relay failed to start. Check $(RELAY_LOG):"; \
+			tail -n 20 $(RELAY_LOG); \
+			exit 1; \
+		fi \
 	fi
 
 stop-relay:
@@ -133,8 +144,15 @@ start-frontend:
 	@if [ -f $(FRONTEND_PID) ] && kill -0 $$(cat $(FRONTEND_PID)) 2>/dev/null; then \
 		echo "Demo frontend already running with PID $$(cat $(FRONTEND_PID))"; \
 	else \
-		cd $(FRONTEND_DIR) && nohup $(PNPM) dev --host $(RELAY_HOST) --port $(FRONTEND_PORT) > ../$(FRONTEND_LOG) 2>&1 & echo $$! > ../$(FRONTEND_PID); \
-		echo "Demo frontend started in background (PID: $$(cat $(FRONTEND_PID)))"; \
+		cd $(FRONTEND_DIR) && nohup ./node_modules/.bin/vite --host $(RELAY_HOST) --port $(FRONTEND_PORT) </dev/null > $(FRONTEND_LOG) 2>&1 & echo $$! > $(FRONTEND_PID); \
+		sleep 0.5; \
+		if [ -f $(FRONTEND_PID) ] && kill -0 $$(cat $(FRONTEND_PID)) 2>/dev/null; then \
+			echo "Demo frontend started in background (PID: $$(cat $(FRONTEND_PID)))"; \
+		else \
+			echo "Demo frontend failed to start. Check $(FRONTEND_LOG):"; \
+			tail -n 20 $(FRONTEND_LOG); \
+			exit 1; \
+		fi \
 	fi
 
 stop-frontend:
@@ -150,12 +168,16 @@ status:
 	@printf "%-18s" "Model relay:"
 	@if [ -f $(RELAY_PID) ] && kill -0 $$(cat $(RELAY_PID)) 2>/dev/null; then \
 		echo "running (PID $$(cat $(RELAY_PID))) on http://$(RELAY_HOST):$(RELAY_PORT)"; \
+	elif curl -s http://$(RELAY_HOST):$(RELAY_PORT)/api/health >/dev/null 2>&1; then \
+		echo "running on http://$(RELAY_HOST):$(RELAY_PORT)"; \
 	else \
 		echo "stopped"; \
 	fi
 	@printf "%-18s" "Demo frontend:"
 	@if [ -f $(FRONTEND_PID) ] && kill -0 $$(cat $(FRONTEND_PID)) 2>/dev/null; then \
 		echo "running (PID $$(cat $(FRONTEND_PID))) on http://$(RELAY_HOST):$(FRONTEND_PORT)"; \
+	elif curl -s http://$(RELAY_HOST):$(FRONTEND_PORT) >/dev/null 2>&1; then \
+		echo "running on http://$(RELAY_HOST):$(FRONTEND_PORT)"; \
 	else \
 		echo "stopped"; \
 	fi
@@ -198,12 +220,18 @@ test-backend:
 test-workspace:
 	$(PNPM) run test:workspace
 
+test-python:
+	$(PNPM) run test:python
+
+test-python-browser:
+	$(PNPM) run test:python:browser
+
 test-runtime:
 	$(PNPM) run test:runtime
 
 test:
 	$(PNPM) run test:backend
 	$(PNPM) run test:workspace
-	$(PNPM) run test:runtime
+	$(PNPM) run test:python
 
 check: format-check typecheck test

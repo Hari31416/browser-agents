@@ -12,9 +12,15 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node test/protocol.test.mjs && node test/staging-integration.test.mjs",
+    "test:browser": "node test/browser.test.mjs"
+  },
+  "dependencies": {
+    "@browser-agents/workspace": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "typescript": "^5.8.0"
   }
 }

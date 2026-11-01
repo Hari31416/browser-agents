@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Python Browser Test Page</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "@browser-agents/workspace": "/packages/workspace/dist/index.js",
+      "@browser-agents/python": "/packages/python/dist/index.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <h1>Python Browser Test Page</h1>
+  <script type="module">
+    import * as PythonModule from '@browser-agents/python';
+    import * as WorkspaceModule from '@browser-agents/workspace';
+    window.PythonModule = PythonModule;
+    window.WorkspaceModule = WorkspaceModule;
+    window.testPageReady = true;
+  </script>
+</body>
+</html>
