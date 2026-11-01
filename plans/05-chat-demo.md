@@ -13,6 +13,9 @@ inspect the plan and tool outputs, download results, and return to their chats.
   API key, connection test, discovered models, and manual model ID fallback.
   Use the local relay throughout. Clear key input after registration and never
   persist it with chat or provider display metadata.
+- [ ] Separate connection/model-list success from agent tool compatibility.
+  Explain malformed planning/tool arguments clearly and let the user select
+  another model. Do not present the current failed nested-JSON check as passed.
 - [ ] Show relay disconnection and session expiry. After relay restart, retain
   nonsecret endpoint/model preferences but request credentials again as needed.
 - [ ] Provide a chat list, streaming conversation, composer, file upload control,

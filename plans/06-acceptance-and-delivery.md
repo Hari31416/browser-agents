@@ -19,6 +19,10 @@ explicit browser, protocol, storage, and execution limits.
   endpoints. Record model, endpoint type, date, and observed supported behavior
   without publishing keys or private content. If credentials are unavailable,
   report the unrun checks; do not infer support from fake-endpoint tests.
+- [ ] Require a real Deep Agents planning/file/Python workflow with valid nested
+  planning arguments. Earlier success of the separate explicit-loop fixture is
+  not a substitute. The current configured-model failure must be resolved or a
+  compatible model selected before this runtime is claimed fully validated.
 - [ ] Recheck network/credential isolation, path boundaries, active output
   rendering, cross-chat access, cancellation, relay restart, storage failure,
   and tab interruption using the final application configuration.

@@ -1,6 +1,7 @@
 # Phase 01: Establish the workspace and model relay
 
-Status: planned. Depends on the phase 00 framework and isolation decisions.
+Status: planned, not started. Deep Agents is the selected harness; see the
+[adapter and limits](../docs/deepagents-browser-fix.md).
 
 ## Outcome
 
@@ -16,6 +17,13 @@ agent runtime.
 - [ ] Configure strict TypeScript, React and Vite for the demo, and a uv-managed
   FastAPI/Pydantic relay. Pin compatible dependencies and commit lockfiles.
   Use Black and standard logging for Python.
+- [ ] Promote the tested Deep Agents adapter to the typed runtime package.
+  Preserve the pinned LangSmith patches in the workspace lock/configuration,
+  browser utilities in both main and worker builds, explicit runtime injection,
+  planning middleware, and the worker-ready handshake. Keep tracing and
+  subagent/shell capabilities disabled. Do not introduce a no-op async-hooks shim.
+- [ ] Verify a fresh locked install reapplies patches, native Node context still
+  works, and browser planning/files/concurrent state checks pass after promotion.
 - [ ] Define shared protocol schemas for provider registration, model discovery,
   generation, cancellation, and typed errors. Keep provider credentials out of
   model messages and runtime events.
@@ -45,6 +53,9 @@ streams, tool-call responses, authentication errors, disconnects, and aborts.
 Verify a second base URL works without changing runtime code. Confirm invalid
 sessions and untrusted browser origins cannot register or use providers.
 Check that API keys are absent from logs, returned records, and error messages.
+Retain the configured model's invalid planning-argument failure as explicit
+compatibility evidence. Model discovery alone does not prove valid tool calling;
+full Deep Agents/Python provider acceptance belongs to phases 04 and 06.
 
 ## Exit check
 

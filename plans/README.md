@@ -1,7 +1,8 @@
 # Implementation plan
 
 Status: Phase 00 feasibility complete for the tested desktop Chrome configuration.
-Phases 01–06 remain planned. See the technical findings for actual evidence.
+Phases 01–06 remain planned and unimplemented. Work stops after the Phase 00
+follow-up and plan updates; Phase 01 has not started.
 
 The [project outline](../README.md) defines the agreed scope. The
 [Testbed notes](../docs/testbed-reference.md) describe useful reference patterns.
@@ -38,8 +39,18 @@ experiment changes the architecture.
 ## Working defaults
 
 Start with desktop Chromium. Keep agent code independent of React. Use the
-existing TypeScript, React, Vite, pnpm, and Python relay preferences. Validate
-Pyodide and Deep Agents before making them permanent dependencies.
+existing TypeScript, React, Vite, pnpm, and Python relay preferences.
+
+Use Deep Agents through the [tested browser adapter](../docs/deepagents-browser-fix.md).
+Carry its pinned LangSmith browser patches, browser utility configuration,
+explicit runtime state, planning middleware, and worker-ready protocol into the
+workspace. Keep the smaller explicit loop as a protocol reference, not a second
+application harness. Browser tracing and ambient context helpers are unsupported.
+
+The configured endpoint currently returns malformed JSON for nested planning
+arguments. This is an open model/protocol compatibility check, not a reason to
+replace the harness silently. Preserve fail-closed behavior and validate a real
+model's planning/file/Python workflow before declaring the MVP complete.
 
 The model relay forwards requests. It does not run the agent or execute Python.
 Provider keys remain outside agent context, file storage, and generated code.

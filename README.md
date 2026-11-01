@@ -125,8 +125,9 @@ not need further product decisions before an initial compatibility prototype.
 
 - TypeScript for the agent runtime; React, Vite, and pnpm for the demo UI.
 - Run orchestration outside the UI thread in a Web Worker.
-- Use the explicit browser-worker loop selected in Phase 0. The tested Deep
-  Agents browser bundle failed on Node dependencies; see the technical findings.
+- Use Deep Agents through the tested browser compatibility adapter. Carry its
+  pinned package patches, explicit tool runtime state, and planning middleware
+  into the implementation. Keep the explicit loop as a protocol reference.
 - Keep model access, tool execution, storage, and UI behind separate interfaces.
 - Evaluate OPFS for workspace files and IndexedDB for chat and run records.
 - Use Pyodide with approved assets supplied to an isolated iframe/worker,
@@ -142,6 +143,10 @@ not need further product decisions before an initial compatibility prototype.
 - Retain Testbed's provider setup interaction as a reference. See the
   [reference notes](docs/testbed-reference.md) and
   [Phase 0 technical findings](docs/technical-findings.md).
+
+The [Deep Agents browser fix](docs/deepagents-browser-fix.md) provides the
+selected adapter for the required planning/file workflow. The configured model's malformed nested planning
+arguments must be resolved before claiming a real-model Deep Agents demo.
 
 ## Boundaries to resolve
 
@@ -193,6 +198,7 @@ The explicit browser-worker loop, isolated Python execution, streaming relay,
 real-provider round trip, and recovery probes have passed on the declared target.
 See [experiment commands and evidence](experiments/phase0/README.md).
 
+Phase 01 has not started. Work is stopped after Phase 00 and plan updates.
 The MVP chat UI, workspace database, provider setup, reusable TypeScript package,
 and production relay remain to be implemented. Subagents, arbitrary package
 installation, and local inference are deferred.

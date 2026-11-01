@@ -7,11 +7,15 @@ evidence are in [experiments/phase0](../experiments/phase0/README.md).
 
 ## Decisions
 
-Use the small explicit browser-worker agent loop for the next phase. It has
-completed planning and file operations against both a deterministic endpoint
-and the user's configured real OpenAI-compatible model through a local relay.
-Keep the model adapter, file tools, and Python executor separate when converting
-the experiment to the TypeScript runtime.
+The original fallback was a small explicit browser-worker loop, which completed
+planning and file operations against both a deterministic endpoint and the user's
+configured real model. Following the compatibility fix, Deep Agents through the
+tested browser adapter is the selected harness for later phases. Keep the explicit
+loop as a protocol control. Its provider success does not prove that the same
+model can produce Deep Agents' nested planning arguments.
+
+Keep model access, file tools, and Python execution separate when promoting the
+adapter into the TypeScript runtime. Phase 01 remains planned and unimplemented.
 
 Use an opaque-origin iframe containing a disposable worker for the Python
 execution experiment. The trusted page prepares and validates the approved
@@ -48,13 +52,37 @@ therefore never exercised Deep Agents' planning and file tools.
 This rejects this dependency/build configuration for the initial prototype,
 not all possible browser integrations of Deep Agents. Further polyfills or
 bundler-specific dependency substitutions would need their own correctness
-checks. The current bounded explicit loop already satisfies the required
-feasibility tasks without those dependencies, so use it for the next phase.
+checks. The bounded explicit loop satisfied the original feasibility gate without
+those dependencies. The later compatibility fix provides the selected Deep
+Agents path described below.
 
 The chosen loop executes in a dedicated browser worker. It validates planning
 and file-call arguments, preserves call IDs and tool results, limits tool steps
 and stream sizes, and serializes mutations. Production persistence, full runtime
 schemas, context management, and Python-tool integration remain in later phases.
+
+## Follow-up Deep Agents diagnosis
+
+A [five-build investigation](deepagents-browser-investigation.md) now separates
+the initial Node-global failure, eager tracing async-storage initialization,
+missing planning middleware in the fake-model probe, and ambient file-backend
+context. With diagnostic globals/storage substitutions, explicit planning, and
+the runtime-injected backend, basic Deep Agents planning and file operations
+pass. The no-op storage alias does not implement async context, and zero-argument
+StateBackend still fails. This corrects any interpretation that the initial
+failure proves the core workflow cannot run in a browser. The original vanilla
+configuration remains rejected. The supported adapter described below is now
+the selected path, with its patches and limitations carried into the plans.
+
+## Browser compatibility fix
+
+The [browser adapter and pinned package patches](deepagents-browser-fix.md) now
+pass planning, file operations, PNG reads, graph updates, cancellation, and
+interleaved chat state without the diagnostic async-hooks alias. A deterministic
+compatible endpoint also passes. The configured real model still emits malformed
+nested planning arguments; that separate validation remains failed. The original
+raw-import rejection remains reproducible, and full MVP runtime integration has
+not been performed.
 
 ## Integrated Python isolation
 

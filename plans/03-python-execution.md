@@ -15,6 +15,9 @@ workspace access, no external network access, and reliable cancellation.
 - [ ] Load pinned Pyodide, NumPy, pandas, and matplotlib assets through the
   application-controlled bootstrap. Lock execution down before accepting code.
   Do not expose an installation tool or arbitrary package download path.
+- [ ] Keep the Python iframe/worker separate from Deep Agents' trusted worker.
+  Browser process/Buffer utilities and relay session tokens belong only to
+  orchestration; do not transfer them into generated-code execution.
 - [ ] Define request IDs and typed responses for initialization, execution,
   stdout/stderr, errors, generated files, cancellation, and reset. Ignore stale
   responses from terminated workers.
