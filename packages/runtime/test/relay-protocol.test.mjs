@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { spawn } from 'node:child_process'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { RelayClient } from '../dist/relay-client.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const backendDir = path.resolve(__dirname, '../../../backend')
+const uvicornBin = path.join(backendDir, '.venv/bin/uvicorn')
 
 const RELAY_PORT = 8766
 const UPSTREAM_PORT = 8767
@@ -70,10 +76,10 @@ await new Promise(resolve => upstreamServer.listen(UPSTREAM_PORT, '127.0.0.1', r
 
 // Start FastAPI relay
 const relayProcess = spawn(
-  '.venv/bin/uvicorn',
+  uvicornBin,
   ['relay.main:app', '--host', '127.0.0.1', '--port', String(RELAY_PORT)],
   {
-    cwd: 'backend',
+    cwd: backendDir,
     env: { ...process.env, PYTHONPATH: 'src' },
     stdio: ['ignore', 'pipe', 'pipe'],
   },
