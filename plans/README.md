@@ -1,7 +1,7 @@
 # Implementation plan
 
-Status: Phase 00 feasibility, Phase 01 foundation and relay, Phase 02 workspace and records, and Phase 03 Python execution complete.
-Phases 04–06 remain planned. Work proceeds next to Phase 04: Agent runtime.
+Status: Phase 00 feasibility, Phase 01 foundation and relay, Phase 02 workspace and records, Phase 03 Python execution, and Phase 04 agent runtime complete.
+Phases 05–06 remain planned. Work proceeds next to Phase 05: Chat demo.
 
 The [project outline](../README.md) defines the agreed scope. The
 [Testbed notes](../docs/testbed-reference.md) describe useful reference patterns.
