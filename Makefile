@@ -233,5 +233,6 @@ test:
 	$(PNPM) run test:backend
 	$(PNPM) run test:workspace
 	$(PNPM) run test:python
+	$(PNPM) run test:runtime
 
 check: format-check typecheck test
