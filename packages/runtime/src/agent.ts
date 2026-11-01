@@ -4,6 +4,7 @@ import type {
   AnyBackendProtocol,
   BackendRuntime,
 } from 'deepagents/browser'
+import { validateToolPath } from './tools.js'
 
 // Ensure Node-utility shims are attached when running in an orchestration worker or environment
 if (typeof globalThis.process === 'undefined') {
@@ -16,6 +17,7 @@ if (typeof globalThis.Buffer === 'undefined') {
 
 const { createDeepAgent, StateBackend } = await import('deepagents/browser')
 const { createMiddleware, todoListMiddleware } = await import('langchain')
+const { ToolMessage } = await import('@langchain/core/messages')
 
 const FORBIDDEN_TOOLS = new Set([
   'task',
@@ -63,6 +65,7 @@ function explicitBackend(
 export interface CreateBrowserDeepAgentOptions {
   model: unknown
   backend?: unknown | ((runtime: BackendRuntime<unknown>) => Promise<unknown> | unknown)
+  tools?: unknown[]
   systemPrompt?: string
   subagents?: unknown[]
   middleware?: Array<{ name?: string; [key: string]: unknown }>
@@ -93,6 +96,19 @@ export function createBrowserDeepAgent(
     wrapToolCall: (request, handler) => {
       if (FORBIDDEN_TOOLS.has(request.toolCall.name)) {
         throw new Error(`Tool disabled in browser runtime: ${request.toolCall.name}`)
+      }
+      const args = request.toolCall.args as Record<string, unknown> | undefined
+      const filePath = args?.file_path ?? args?.path
+      if (typeof filePath === 'string') {
+        const check = validateToolPath(filePath)
+        if (!check.valid) {
+          return new ToolMessage({
+            tool_call_id: request.toolCall.id || '',
+            name: request.toolCall.name,
+            content: JSON.stringify({ error: check.error || 'Access denied: invalid file path' }),
+            status: 'error',
+          })
+        }
       }
       return handler(request)
     },
