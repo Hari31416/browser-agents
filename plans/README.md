@@ -1,7 +1,7 @@
 # Implementation plan
 
-Status: Phase 00 feasibility and Phase 01 foundation and relay complete.
-Phases 02–06 remain planned. Work proceeds next to Phase 02: Workspace and records.
+Status: Phase 00 feasibility, Phase 01 foundation and relay, and Phase 02 workspace and records complete.
+Phases 03–06 remain planned. Work proceeds next to Phase 03: Python execution.
 
 The [project outline](../README.md) defines the agreed scope. The
 [Testbed notes](../docs/testbed-reference.md) describe useful reference patterns.
