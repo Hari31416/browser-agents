@@ -1,0 +1,100 @@
+diff --git a/dist/traceable.js b/dist/traceable.js
+index cddefd2fd5f65d7b66ff155913e344f70a786a84..164be73ba1c4951ade4ff5393f23d82893b83f53 100644
+--- a/dist/traceable.js
++++ b/dist/traceable.js
+@@ -1,4 +1,4 @@
+-import { AsyncLocalStorage } from "node:async_hooks";
++import { createNativeAsyncStorage, captureNativeSnapshot, hasNativeAsyncStorage } from "./utils/async_context.js";
+ import { RunTree, isRunTree, isRunnableConfigLike, } from "./run_trees.js";
+ import { isEnvTracingEnabled } from "./env.js";
+ import { ROOT, AsyncLocalStorageProviderSingleton, getCurrentRunTree, } from "./singletons/traceable.js";
+@@ -8,7 +8,8 @@ import { __version__ } from "./index.js";
+ import { getOTELTrace, getOTELContext } from "./singletons/otel.js";
+ import { getUuidFromOtelSpanId } from "./experimental/otel/utils.js";
+ import { LANGSMITH_REFERENCE_EXAMPLE_ID, LANGSMITH_SESSION_NAME, LANGSMITH_TRACEABLE, } from "./experimental/otel/constants.js";
+-AsyncLocalStorageProviderSingleton.initializeGlobalInstance(new AsyncLocalStorage());
++const nativeAsyncStorage = createNativeAsyncStorage();
++if (nativeAsyncStorage) AsyncLocalStorageProviderSingleton.initializeGlobalInstance(nativeAsyncStorage);
+ /**
+  * Create OpenTelemetry context manager from RunTree if OTEL is enabled.
+  */
+@@ -486,6 +487,9 @@ export function traceable(wrappedFunc, config) {
+                 ...runTreeConfig,
+             };
+         }
++        if (!hasNativeAsyncStorage && isEnvTracingEnabled(ensuredConfig.tracingEnabled)) {
++            throw new Error("LangSmith tracing requires native async context; browser tracing is disabled in this build.");
++        }
+         let runEndedPromiseResolver;
+         const runEndedPromise = new Promise((resolve) => {
+             runEndedPromiseResolver = resolve;
+@@ -730,7 +734,7 @@ export function traceable(wrappedFunc, config) {
+                 returnValue = Promise.reject(err);
+             }
+             if (isAsyncIterable(returnValue)) {
+-                const snapshot = AsyncLocalStorage.snapshot();
++                const snapshot = captureNativeSnapshot();
+                 return wrapAsyncGeneratorForTracing(returnValue, snapshot);
+             }
+             if (!Array.isArray(returnValue) &&
+@@ -740,7 +744,7 @@ export function traceable(wrappedFunc, config) {
+                 isAsyncIterable(
+                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                 returnValue[__finalTracedIteratorKey])) {
+-                const snapshot = AsyncLocalStorage.snapshot();
++                const snapshot = captureNativeSnapshot();
+                 return {
+                     ...returnValue,
+                     [__finalTracedIteratorKey]: wrapAsyncGeneratorForTracing(
+@@ -752,7 +756,7 @@ export function traceable(wrappedFunc, config) {
+                 Promise.resolve(returnValue)
+                     .then(async (rawOutput) => {
+                     if (isAsyncIterable(rawOutput)) {
+-                        const snapshot = AsyncLocalStorage.snapshot();
++                        const snapshot = captureNativeSnapshot();
+                         return resolve(wrapAsyncGeneratorForTracing(rawOutput, snapshot));
+                     }
+                     if (!Array.isArray(rawOutput) &&
+@@ -762,7 +766,7 @@ export function traceable(wrappedFunc, config) {
+                         isAsyncIterable(
+                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                         rawOutput[__finalTracedIteratorKey])) {
+-                        const snapshot = AsyncLocalStorage.snapshot();
++                        const snapshot = captureNativeSnapshot();
+                         return {
+                             ...rawOutput,
+                             [__finalTracedIteratorKey]: wrapAsyncGeneratorForTracing(
+diff --git a/dist/utils/async_context.browser.js b/dist/utils/async_context.browser.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..37ba90b968595c77676bfed7f12ec21e3af4ce11
+--- /dev/null
++++ b/dist/utils/async_context.browser.js
+@@ -0,0 +1,5 @@
++// Browser support deliberately has no implicit async context.
++// Callers pass execution state explicitly and reject tracing requests.
++export const hasNativeAsyncStorage = false;
++export const createNativeAsyncStorage = () => undefined;
++export const captureNativeSnapshot = () => undefined;
+diff --git a/dist/utils/async_context.js b/dist/utils/async_context.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..0b0866898a1b00e6fa64f068094ebf24d194a531
+--- /dev/null
++++ b/dist/utils/async_context.js
+@@ -0,0 +1,4 @@
++import { AsyncLocalStorage } from 'node:async_hooks';
++export const hasNativeAsyncStorage = true;
++export const createNativeAsyncStorage = () => new AsyncLocalStorage();
++export const captureNativeSnapshot = () => AsyncLocalStorage.snapshot();
+diff --git a/package.json b/package.json
+index 234d63a5b9aa67cb84bad1c509c6e0a07da65248..5d0c827640d7d5357c6f5a9e69dd54684b447b79 100644
+--- a/package.json
++++ b/package.json
+@@ -503,6 +503,7 @@
+   },
+   "browser": {
+     "./dist/utils/fs.js": "./dist/utils/fs.browser.js",
+-    "./dist/utils/worker_threads.js": "./dist/utils/worker_threads.browser.js"
++    "./dist/utils/worker_threads.js": "./dist/utils/worker_threads.browser.js",
++    "./dist/utils/async_context.js": "./dist/utils/async_context.browser.js"
+   }
+ }

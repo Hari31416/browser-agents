@@ -12,7 +12,8 @@ export async function completion({ url, token, messages, tools, signal }) {
     const data = event.split(/\r?\n/).filter(x => x.startsWith('data:')).map(x => x.slice(5).trimStart()).join('\n');
     if (!data) return;
     if (data === '[DONE]') { doneMarker = true; return; }
-    const chunk = JSON.parse(data);
+    let chunk;
+    try { chunk=JSON.parse(data); } catch(error) { throw new SyntaxError('Invalid SSE JSON: '+error.message); }
     if (chunk.error) throw Error('Upstream stream error');
     const delta = chunk.choices?.[0]?.delta;
     if (!delta) return;
@@ -43,7 +44,7 @@ export async function completion({ url, token, messages, tools, signal }) {
     if (!doneMarker) throw Error('Truncated stream');
     for (const call of calls) {
       if (!call || !call.id || !call.name) throw Error('Incomplete tool call');
-      JSON.parse(call.args);
+      try { JSON.parse(call.args); } catch(error) { const failure=new SyntaxError('Invalid arguments for '+call.name+': '+error.message);failure.invalidToolArguments=true;throw failure; }
     }
     return { text, calls };
   } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }

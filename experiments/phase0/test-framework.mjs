@@ -12,7 +12,7 @@ try {
   const files = await readdir('dist/assets');
   const worker = files.find(name => /^agent-.*\.js$/.test(name));
   const report = { browser: browser.version(), candidate: 'Deep Agents browser export', supported: false, error: result.error,
-    uncompressedWorkerBytes: (await stat('dist/assets/' + worker)).size, decision: 'Use the bounded explicit browser loop demonstrated by the protocol and real-provider probes' };
+    uncompressedWorkerBytes: (await stat('dist/assets/' + worker)).size, decision: 'Raw-import configuration is rejected; the separately tested browser compatibility adapter provides the fixed Deep Agents path' };
   await mkdir('results', { recursive: true }); await writeFile('results/framework.json', JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));
 } finally { await browser.close(); }

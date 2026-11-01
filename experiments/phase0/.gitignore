@@ -3,3 +3,5 @@ dist/
 
 public/runtime/
 results/
+dist-investigation/
+dist-fixed/

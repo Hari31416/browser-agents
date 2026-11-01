@@ -1,0 +1,3 @@
+patchedDependencies:
+  langsmith@0.11.5: patches/langsmith@0.11.5.patch
+  langsmith@0.9.0: patches/langsmith@0.9.0.patch

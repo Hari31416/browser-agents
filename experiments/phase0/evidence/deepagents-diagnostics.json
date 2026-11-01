@@ -1,0 +1,134 @@
+{
+  "browser": "156.0.8078.74",
+  "versions": {
+    "deepagents": "1.16.2",
+    "langchain": "1.6.0",
+    "@langchain/core": "1.3.2",
+    "@langchain/langgraph": "1.5.3",
+    "langsmith": "0.9.0"
+  },
+  "diagnosticOnly": true,
+  "results": {
+    "baseline": {
+      "ok": false,
+      "error": "Uncaught ReferenceError: process is not defined",
+      "filename": "http://127.0.0.1:5173/dist-investigation/baseline/assets/agent-investigation-BtecAw0b.js",
+      "line": 68418,
+      "column": 16
+    },
+    "globals": {
+      "ok": false,
+      "error": "Uncaught TypeError: import___vite_browser_external.AsyncLocalStorage is not a constructor",
+      "filename": "http://127.0.0.1:5173/dist-investigation/globals/assets/agent-investigation-_8a3vmJN.js",
+      "line": 95054,
+      "column": 61
+    },
+    "mock-context": {
+      "ok": true,
+      "mode": "mock-context",
+      "boundTools": [
+        "ls",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "delete",
+        "glob",
+        "grep",
+        "task"
+      ],
+      "toolResults": [
+        {
+          "name": "write_todos",
+          "content": "Error: write_todos is not a valid tool, try one of [ls, read_file, write_file, edit_file, delete, glob, grep, execute, task].",
+          "status": "error"
+        },
+        {
+          "name": "write_file",
+          "content": "Successfully wrote to '/result.txt'"
+        },
+        {
+          "name": "read_file",
+          "content": [
+            {
+              "type": "text",
+              "text": "@@ lines 1-1 of 1 @@\nhello from browser"
+            }
+          ],
+          "status": "success"
+        },
+        {
+          "name": "write_todos",
+          "content": "Error: write_todos is not a valid tool, try one of [ls, read_file, write_file, edit_file, delete, glob, grep, execute, task].",
+          "status": "error"
+        }
+      ],
+      "files": {
+        "/result.txt": {
+          "content": "hello from browser",
+          "mimeType": "text/plain",
+          "created_at": "2026-10-31T14:20:30.161Z",
+          "modified_at": "2026-10-31T14:20:30.161Z"
+        }
+      }
+    },
+    "mock-planning": {
+      "ok": true,
+      "mode": "mock-planning",
+      "boundTools": [
+        "ls",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "delete",
+        "glob",
+        "grep",
+        "task",
+        "write_todos"
+      ],
+      "toolResults": [
+        {
+          "name": "write_todos",
+          "content": "Updated todo list to [{\"content\":\"Write file\",\"status\":\"in_progress\"}]"
+        },
+        {
+          "name": "write_file",
+          "content": "Successfully wrote to '/result.txt'"
+        },
+        {
+          "name": "read_file",
+          "content": [
+            {
+              "type": "text",
+              "text": "@@ lines 1-1 of 1 @@\nhello from browser"
+            }
+          ],
+          "status": "success"
+        },
+        {
+          "name": "write_todos",
+          "content": "Updated todo list to [{\"content\":\"Write file\",\"status\":\"completed\"}]"
+        }
+      ],
+      "todos": [
+        {
+          "content": "Write file",
+          "status": "completed"
+        }
+      ],
+      "files": {
+        "/result.txt": {
+          "content": "hello from browser",
+          "mimeType": "text/plain",
+          "created_at": "2026-10-31T14:20:30.352Z",
+          "modified_at": "2026-10-31T14:20:30.352Z"
+        }
+      }
+    },
+    "mock-ambient": {
+      "ok": false,
+      "mode": "mock-ambient",
+      "error": "TypeError: Cannot read properties of undefined (reading 'configurable')",
+      "stack": "TypeError: Cannot read properties of undefined (reading 'configurable')\n    at get files (http://127.0.0.1:5173/dist-investigation/mock-ambient/assets/agent-investigation-DHAY1_5w.js:96280:27)\n    at StateBackend.write (http://127.0.0.1:5173/dist-investigation/mock-ambient/assets/agent-investigation-DHAY1_5w.js:96389:23)\n    at Object.write (http://127.0.0.1:5173/dist-investigation/mock-ambient/assets/agent-investigation-DHAY1_5w.js:96076:41)\n    at tool$1.name (http://127.0.0.1:5173/dist-investigation/mock-ambient/assets/agent-investigation-DHAY1_5w.js:98369:40)\n    at async http://127.0.0.1:5173/dist-investigation/mock-ambient/assets/agent-investigation-DHAY1_5w.js:42391:22"
+    }
+  }
+}

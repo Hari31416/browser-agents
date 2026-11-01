@@ -17,4 +17,10 @@ try {
   ]);
   for (const script of ['test-framework.mjs', 'test-isolated.mjs', 'test-protocol.mjs']) await run([script]);
   if (process.argv.includes('--provider')) await run(['--env-file=../../.env', 'test-provider.mjs']);
-} finally { server.kill('SIGTERM'); }
+} finally {
+  if(server.exitCode===null) await new Promise(resolve=>{server.once('exit',resolve);server.kill('SIGTERM');});
+}
+await run(['test-langsmith-node.mjs']);
+await run(process.argv.includes('--provider')
+  ? ['--env-file=../../.env','test-deepagents-fix.mjs','--provider']
+  : ['test-deepagents-fix.mjs']);

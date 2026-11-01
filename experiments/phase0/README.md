@@ -90,3 +90,30 @@ tested explicit worker. There are no competing production runtimes.
 
 See [technical findings](../../docs/technical-findings.md) for the decision,
 actual measurements, security limits, and remaining application work.
+
+## Deep Agents follow-up diagnosis
+
+Run `pnpm test:deepagents-diagnostics` separately with port 5173 free. It builds
+and verifies the baseline, Node-global substitutions, a diagnostic no-op storage
+alias, explicit planning, and the ambient-backend failure. The alias is confined
+to `vite.investigation.config.js` and is not used by the selected runtime or
+normal build. See [the investigation](../../docs/deepagents-browser-investigation.md)
+and `evidence/deepagents-diagnostics.json` for outcomes and limitations.
+
+## Supported Deep Agents browser adapter
+
+The [browser fix](../../docs/deepagents-browser-fix.md) uses pinned package patches
+and `browser-compat/` instead of the historical async-hooks mock. Run
+`pnpm test:deepagents-fix` for planning, file and PNG operations, concurrent chat
+state, streaming, cancellation, and the compatible-endpoint fixture. Run
+`pnpm test:langsmith-node` for preserved native Node behavior. Both are included
+in `pnpm test`.
+
+`pnpm test:deepagents-fix:provider` is the separate real-endpoint check. The current
+configured model returns malformed nested todo arguments and this check remains
+failed. `pnpm test:all` includes it and will fail until that provider/model issue
+is resolved. The deterministic suite does not conceal this distinction.
+
+The old diagnostic matrix is historical evidence. With the registered browser
+patches, `pnpm test:deepagents-diagnostics` now confirms the globals-only variant
+passes and writes an after-fix report without overwriting the original matrix.
