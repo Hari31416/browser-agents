@@ -17,7 +17,7 @@ interface ToolCallCardProps {
 }
 
 export function ToolCallCard({ toolCall, onDownloadFile }: ToolCallCardProps) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
 
   // Parse args

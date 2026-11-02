@@ -113,10 +113,213 @@ function renderFormattedInline(text: string): ReactNode[] {
   })
 }
 
+function isTableSeparator(line: string): boolean {
+  const trimmed = line.trim()
+  if (!trimmed.includes('|')) return false
+  const cells = trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|')
+  if (cells.length === 0) return false
+  return cells.every(c => /^\s*:?-{2,}:?\s*$/.test(c))
+}
+
+function isTableRow(line: string): boolean {
+  const trimmed = line.trim()
+  return trimmed.includes('|')
+}
+
+function parseTableAlignments(separator: string): Array<'left' | 'center' | 'right' | undefined> {
+  const cells = separator.trim().replace(/^\|/, '').replace(/\|$/, '').split('|')
+  return cells.map(cell => {
+    const trimmed = cell.trim()
+    const left = trimmed.startsWith(':')
+    const right = trimmed.endsWith(':')
+    if (left && right) return 'center'
+    if (right) return 'right'
+    if (left) return 'left'
+    return undefined
+  })
+}
+
+function parseTableCells(row: string): string[] {
+  let trimmed = row.trim()
+  if (trimmed.startsWith('|')) trimmed = trimmed.slice(1)
+  if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1)
+  return trimmed.split('|').map(c => c.trim())
+}
+
+function renderBlockElements(lines: string[]): ReactNode[] {
+  const elements: ReactNode[] = []
+  let pendingParagraphLines: string[] = []
+
+  const flushParagraph = () => {
+    if (pendingParagraphLines.length === 0) return
+    const text = pendingParagraphLines.join('\n').trim()
+    pendingParagraphLines = []
+    if (!text) return
+
+    // Header 1
+    if (text.startsWith('# ')) {
+      elements.push(
+        <h1 key={`h1-${elements.length}`} className="text-xl font-bold text-zinc-100 mt-4 mb-2">
+          {renderFormattedInline(text.slice(2))}
+        </h1>,
+      )
+      return
+    }
+
+    // Header 2
+    if (text.startsWith('## ')) {
+      elements.push(
+        <h2 key={`h2-${elements.length}`} className="text-lg font-semibold text-zinc-100 mt-3 mb-2">
+          {renderFormattedInline(text.slice(3))}
+        </h2>,
+      )
+      return
+    }
+
+    // Header 3
+    if (text.startsWith('### ')) {
+      elements.push(
+        <h3 key={`h3-${elements.length}`} className="text-base font-semibold text-zinc-200 mt-3 mb-1">
+          {renderFormattedInline(text.slice(4))}
+        </h3>,
+      )
+      return
+    }
+
+    // Blockquote
+    if (text.startsWith('> ')) {
+      elements.push(
+        <blockquote
+          key={`bq-${elements.length}`}
+          className="border-l-2 border-zinc-600 pl-3 italic text-zinc-400 my-2"
+        >
+          {renderFormattedInline(text.slice(2))}
+        </blockquote>,
+      )
+      return
+    }
+
+    // Unordered or ordered list
+    const pLines = text.split('\n')
+    const isList = pLines.every(l => /^[-*]\s+/.test(l.trim()) || /^\d+\.\s+/.test(l.trim()))
+    if (isList) {
+      elements.push(
+        <ul key={`ul-${elements.length}`} className="list-disc list-inside space-y-1 my-2 text-zinc-300">
+          {pLines.map((l, lIdx) => {
+            const itemText = l.trim().replace(/^([-*]|\d+\.)\s+/, '')
+            return <li key={lIdx}>{renderFormattedInline(itemText)}</li>
+          })}
+        </ul>,
+      )
+      return
+    }
+
+    // Standard paragraph
+    elements.push(
+      <p key={`p-${elements.length}`} className="my-2 text-zinc-200 leading-relaxed">
+        {renderFormattedInline(text)}
+      </p>,
+    )
+  }
+
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    const trimmed = line.trim()
+
+    // Blank line
+    if (!trimmed) {
+      flushParagraph()
+      i++
+      continue
+    }
+
+    // Table detection: current line has pipes and next line is separator
+    if (isTableRow(trimmed) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      flushParagraph()
+      const headerLine = trimmed
+      const separatorLine = lines[i + 1]
+      const alignments = parseTableAlignments(separatorLine)
+      const headers = parseTableCells(headerLine)
+
+      i += 2
+      const rows: string[][] = []
+      while (
+        i < lines.length &&
+        isTableRow(lines[i].trim()) &&
+        !lines[i].trim().startsWith('#') &&
+        lines[i].trim() !== ''
+      ) {
+        rows.push(parseTableCells(lines[i]))
+        i++
+      }
+
+      elements.push(
+        <div
+          key={`table-${elements.length}`}
+          className="my-3 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/60 shadow-xs"
+        >
+          <table className="w-full text-left text-xs border-collapse">
+            <thead className="bg-zinc-900 border-b border-zinc-800 text-zinc-200">
+              <tr>
+                {headers.map((h, hIdx) => (
+                  <th
+                    key={hIdx}
+                    className="px-3.5 py-2 font-semibold text-zinc-100 whitespace-nowrap"
+                    style={{ textAlign: alignments[hIdx] }}
+                  >
+                    {renderFormattedInline(h)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800/60">
+              {rows.map((row, rIdx) => (
+                <tr key={rIdx} className="hover:bg-zinc-900/40 transition-colors">
+                  {row.map((cell, cIdx) => (
+                    <td
+                      key={cIdx}
+                      className="px-3.5 py-2 text-zinc-300 leading-normal"
+                      style={{ textAlign: alignments[cIdx] }}
+                    >
+                      {renderFormattedInline(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      )
+      continue
+    }
+
+    // Header or Blockquote boundary
+    if (
+      trimmed.startsWith('# ') ||
+      trimmed.startsWith('## ') ||
+      trimmed.startsWith('### ') ||
+      trimmed.startsWith('> ')
+    ) {
+      flushParagraph()
+      pendingParagraphLines.push(trimmed)
+      flushParagraph()
+      i++
+      continue
+    }
+
+    pendingParagraphLines.push(line)
+    i++
+  }
+
+  flushParagraph()
+  return elements
+}
+
 export function MarkdownView({ content }: MarkdownViewProps) {
   if (!content.trim()) return null
 
-  // Split content into code blocks and normal paragraphs
+  // Split content into code blocks and normal markdown blocks
   const elements: ReactNode[] = []
   const lines = content.split('\n')
   let inCodeBlock = false
@@ -124,82 +327,11 @@ export function MarkdownView({ content }: MarkdownViewProps) {
   let codeBlockLines: string[] = []
   let textBlockLines: string[] = []
 
-  const flushTextBlock = () => {
+  const flushText = () => {
     if (textBlockLines.length === 0) return
-    const rawBlock = textBlockLines.join('\n').trim()
+    const blockElements = renderBlockElements(textBlockLines)
+    elements.push(...blockElements)
     textBlockLines = []
-    if (!rawBlock) return
-
-    const blockParagraphs = rawBlock.split(/\n\s*\n/)
-    blockParagraphs.forEach((paragraph, pIdx) => {
-      const trimmed = paragraph.trim()
-      if (!trimmed) return
-
-      // Header 1
-      if (trimmed.startsWith('# ')) {
-        elements.push(
-          <h1 key={`h1-${elements.length}-${pIdx}`} className="text-xl font-bold text-zinc-100 mt-4 mb-2">
-            {renderFormattedInline(trimmed.slice(2))}
-          </h1>,
-        )
-        return
-      }
-
-      // Header 2
-      if (trimmed.startsWith('## ')) {
-        elements.push(
-          <h2 key={`h2-${elements.length}-${pIdx}`} className="text-lg font-semibold text-zinc-100 mt-3 mb-2">
-            {renderFormattedInline(trimmed.slice(3))}
-          </h2>,
-        )
-        return
-      }
-
-      // Header 3
-      if (trimmed.startsWith('### ')) {
-        elements.push(
-          <h3 key={`h3-${elements.length}-${pIdx}`} className="text-base font-semibold text-zinc-200 mt-3 mb-1">
-            {renderFormattedInline(trimmed.slice(4))}
-          </h3>,
-        )
-        return
-      }
-
-      // Blockquote
-      if (trimmed.startsWith('> ')) {
-        elements.push(
-          <blockquote
-            key={`bq-${elements.length}-${pIdx}`}
-            className="border-l-2 border-zinc-600 pl-3 italic text-zinc-400 my-2"
-          >
-            {renderFormattedInline(trimmed.slice(2))}
-          </blockquote>,
-        )
-        return
-      }
-
-      // Unordered or ordered list
-      const pLines = trimmed.split('\n')
-      const isList = pLines.every(l => /^[-*]\s+/.test(l.trim()) || /^\d+\.\s+/.test(l.trim()))
-      if (isList) {
-        elements.push(
-          <ul key={`ul-${elements.length}-${pIdx}`} className="list-disc list-inside space-y-1 my-2 text-zinc-300">
-            {pLines.map((l, lIdx) => {
-              const itemText = l.trim().replace(/^([-*]|\d+\.)\s+/, '')
-              return <li key={lIdx}>{renderFormattedInline(itemText)}</li>
-            })}
-          </ul>,
-        )
-        return
-      }
-
-      // Standard paragraph
-      elements.push(
-        <p key={`p-${elements.length}-${pIdx}`} className="my-2 text-zinc-200 leading-relaxed">
-          {renderFormattedInline(trimmed)}
-        </p>,
-      )
-    })
   }
 
   for (let i = 0; i < lines.length; i++) {
@@ -219,7 +351,7 @@ export function MarkdownView({ content }: MarkdownViewProps) {
         codeBlockLang = ''
       } else {
         // Start code block
-        flushTextBlock()
+        flushText()
         inCodeBlock = true
         codeBlockLang = line.slice(3).trim()
       }
@@ -239,7 +371,7 @@ export function MarkdownView({ content }: MarkdownViewProps) {
       />,
     )
   } else {
-    flushTextBlock()
+    flushText()
   }
 
   return <div className="text-sm space-y-1">{elements}</div>

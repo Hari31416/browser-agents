@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { AlertCircle, Bot, User } from 'lucide-react'
 import type {
   ChatMessageRecord,
@@ -20,6 +20,22 @@ interface ConversationViewProps {
   onDownloadFile: (path: string) => void
 }
 
+interface TimelineMessageItem {
+  type: 'message'
+  id: string
+  timestamp: string
+  message: ChatMessageRecord
+}
+
+interface TimelineToolCallItem {
+  type: 'tool_call'
+  id: string
+  timestamp: string
+  toolCall: ToolCallRecord
+}
+
+type TimelineItem = TimelineMessageItem | TimelineToolCallItem
+
 export function ConversationView({
   messages,
   planItems,
@@ -35,11 +51,86 @@ export function ConversationView({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, activeRun?.streamingText, toolCalls.length])
 
+  // Build a unified chronological timeline
+  const timelineItems = useMemo<TimelineItem[]>(() => {
+    const items: TimelineItem[] = []
+
+    // 1. Process messages
+    for (let mIdx = 0; mIdx < messages.length; mIdx++) {
+      const msg = messages[mIdx]
+
+      // For assistant messages: check if this message was saved with text before and after tool calls
+      if (msg.role === 'assistant' && msg.content && msg.content.includes('\n\n')) {
+        let prevUserTimestamp = ''
+        for (let j = mIdx - 1; j >= 0; j--) {
+          if (messages[j].role === 'user') {
+            prevUserTimestamp = messages[j].createdAt
+            break
+          }
+        }
+
+        const runToolCalls = toolCalls.filter(tc => {
+          const t = tc.startedAt
+          if (prevUserTimestamp && t < prevUserTimestamp) return false
+          return t <= msg.createdAt
+        })
+
+        if (runToolCalls.length > 0) {
+          const parts = msg.content.split(/\n\s*\n/)
+          if (parts.length > 1) {
+            const firstPart = parts[0].trim()
+            const restPart = parts.slice(1).join('\n\n').trim()
+
+            const earliestTcTime = runToolCalls[0].startedAt
+            const introTime = new Date(Date.parse(earliestTcTime) - 1).toISOString()
+
+            items.push({
+              type: 'message',
+              id: `${msg.id}_part1`,
+              timestamp: introTime,
+              message: { ...msg, id: `${msg.id}_part1`, content: firstPart },
+            })
+
+            items.push({
+              type: 'message',
+              id: `${msg.id}_part2`,
+              timestamp: msg.createdAt,
+              message: { ...msg, id: `${msg.id}_part2`, content: restPart },
+            })
+            continue
+          }
+        }
+      }
+
+      items.push({
+        type: 'message',
+        id: msg.id,
+        timestamp: msg.createdAt,
+        message: msg,
+      })
+    }
+
+    // 2. Process tool calls
+    for (const tc of toolCalls) {
+      items.push({
+        type: 'tool_call',
+        id: tc.id,
+        timestamp: tc.startedAt,
+        toolCall: tc,
+      })
+    }
+
+    // 3. Sort chronologically
+    items.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+
+    return items
+  }, [messages, toolCalls])
+
   return (
     <div
       role="log"
       aria-live="polite"
-      className="flex-1 overflow-y-auto p-4 md:p-6 space-y-5 text-sm"
+      className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 text-sm"
     >
       {messages.length === 0 && !activeRun ? (
         <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto text-zinc-400 space-y-3 py-16">
@@ -55,13 +146,32 @@ export function ConversationView({
         </div>
       ) : null}
 
-      {/* Historical Messages and associated tool/plan records */}
-      {messages.map(msg => {
+      {/* Plan View at top if present */}
+      {planItems.length > 0 && (
+        <div className="max-w-4xl mx-auto pt-1 pb-2">
+          <PlanView todos={planItems} />
+        </div>
+      )}
+
+      {/* Inter-mingled timeline items in chronological order */}
+      {timelineItems.map(item => {
+        if (item.type === 'tool_call') {
+          return (
+            <div key={item.id} className="max-w-4xl mx-auto pl-10 pr-2">
+              <ToolCallCard
+                toolCall={item.toolCall}
+                onDownloadFile={onDownloadFile}
+              />
+            </div>
+          )
+        }
+
+        const msg = item.message
         const isUser = msg.role === 'user'
 
         return (
           <div
-            key={msg.id}
+            key={item.id}
             className={`flex gap-3 max-w-4xl mx-auto ${
               isUser ? 'justify-end' : 'justify-start'
             }`}
@@ -95,39 +205,9 @@ export function ConversationView({
         )
       })}
 
-      {/* Historical or Active Plans and Tool calls */}
-      {toolCalls.length > 0 && !activeRun && (
-        <div className="max-w-4xl mx-auto space-y-2 pt-2">
-          {planItems.length > 0 && <PlanView todos={planItems} />}
-          <div className="space-y-1.5">
-            {toolCalls.map(tc => (
-              <ToolCallCard
-                key={tc.id}
-                toolCall={tc}
-                onDownloadFile={onDownloadFile}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Active Run UI (Streaming output, active plan, live tool cards) */}
+      {/* Active Run UI: Streaming response and error state */}
       {activeRun && (
-        <div className="max-w-4xl mx-auto space-y-4 pt-2">
-          {/* Active Plan */}
-          {planItems.length > 0 && <PlanView todos={planItems} />}
-
-          {/* Active Tool Calls */}
-          {toolCalls
-            .filter(tc => tc.runId === activeRun.runId)
-            .map(tc => (
-              <ToolCallCard
-                key={tc.id}
-                toolCall={tc}
-                onDownloadFile={onDownloadFile}
-              />
-            ))}
-
+        <div className="max-w-4xl mx-auto space-y-4 pt-1">
           {/* Live Assistant Response Streaming */}
           <div className="flex gap-3 justify-start">
             <div className="w-7 h-7 rounded-full bg-sky-950 border border-sky-800 text-sky-400 flex items-center justify-center shrink-0 mt-0.5">

@@ -71,6 +71,7 @@ export interface FileMetadata {
   mimeType: string
   version: number
   etag: string
+  source?: 'user' | 'model'
   createdAt: string
   updatedAt: string
 }
@@ -83,6 +84,7 @@ export interface WorkspaceFile {
   size: number
   version?: number
   etag?: string
+  source?: 'user' | 'model'
   createdAt: string
   updatedAt: string
 }
@@ -92,6 +94,7 @@ export interface WriteFileOptions {
   overwrite?: boolean
   expectedVersion?: number
   mimeType?: string
+  source?: 'user' | 'model'
 }
 
 export interface ReadBoundedOptions {

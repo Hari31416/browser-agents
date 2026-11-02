@@ -30,7 +30,10 @@ export function ProviderModal({
   const [relayUrl, setRelayUrl] = useState(preferences.relayUrl)
   const [providerName, setProviderName] = useState(preferences.providerName)
   const [baseUrl, setBaseUrl] = useState(preferences.baseUrl)
-  const [apiKey, setApiKey] = useState('')
+  const [saveApiKey, setSaveApiKey] = useState(preferences.saveApiKey ?? false)
+  const [apiKey, setApiKey] = useState(
+    preferences.saveApiKey && preferences.savedApiKey ? preferences.savedApiKey : '',
+  )
   const [discoveredModels, setDiscoveredModels] = useState<string[]>(
     currentProvider?.discovered_models ?? [],
   )
@@ -79,10 +82,13 @@ export function ProviderModal({
         setSelectedModel(activeModel)
       }
 
-      // Security requirement: Clear API key input immediately after registration
-      setApiKey('')
+      const tokenToPersist = apiKey.trim() || (saveApiKey ? preferences.savedApiKey || '' : '')
 
-      // Save non-secret preferences to localStorage
+      if (!saveApiKey) {
+        setApiKey('')
+      }
+
+      // Save preferences to localStorage
       onSavePreferences({
         relayUrl: relayUrl.trim(),
         providerName: providerName.trim() || 'Custom Provider',
@@ -90,6 +96,8 @@ export function ProviderModal({
         selectedModel: activeModel || '',
         customModel: customModel.trim(),
         isFixtureMode: false,
+        saveApiKey,
+        savedApiKey: saveApiKey ? tokenToPersist : '',
       })
 
       setStatusMessage(`Provider registered: ${response.provider_id}`)
@@ -107,12 +115,15 @@ export function ProviderModal({
     customModel,
     selectedModel,
     providerName,
+    saveApiKey,
+    preferences.savedApiKey,
     onSetSessionToken,
     onSetCurrentProvider,
     onSavePreferences,
   ])
 
   const handleSaveOnly = useCallback(() => {
+    const tokenToPersist = apiKey.trim() || (saveApiKey ? preferences.savedApiKey || '' : '')
     onSavePreferences({
       relayUrl: relayUrl.trim(),
       providerName: providerName.trim() || 'Configured Provider',
@@ -120,13 +131,20 @@ export function ProviderModal({
       selectedModel: selectedModel.trim(),
       customModel: customModel.trim(),
       isFixtureMode,
+      saveApiKey,
+      savedApiKey: saveApiKey ? tokenToPersist : '',
     })
-    setApiKey('')
+    if (!saveApiKey) {
+      setApiKey('')
+    }
     onClose()
   }, [
     relayUrl,
     providerName,
     baseUrl,
+    apiKey,
+    saveApiKey,
+    preferences.savedApiKey,
     selectedModel,
     customModel,
     isFixtureMode,
@@ -285,7 +303,9 @@ export function ProviderModal({
                     API Key (Optional for local endpoints)
                   </label>
                   <span className="text-[11px] text-zinc-500">
-                    Transferred to relay memory only; never persisted in browser storage
+                    {saveApiKey
+                      ? 'Saved in browser local storage'
+                      : 'Never persisted in browser storage'}
                   </span>
                 </div>
                 <input
@@ -296,6 +316,21 @@ export function ProviderModal({
                   placeholder="sk-..."
                   className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-200 focus:outline-hidden focus:border-zinc-600 font-mono"
                 />
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    id="save-api-key-checkbox"
+                    type="checkbox"
+                    checked={saveApiKey}
+                    onChange={e => setSaveApiKey(e.target.checked)}
+                    className="rounded border-zinc-700 bg-zinc-950 text-sky-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                  />
+                  <label
+                    htmlFor="save-api-key-checkbox"
+                    className="text-[11px] text-zinc-300 cursor-pointer select-none"
+                  >
+                    Save token in local storage so that it survives even when I come back to it
+                  </label>
+                </div>
               </div>
 
               <button

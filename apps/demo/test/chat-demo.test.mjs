@@ -14,6 +14,7 @@ import {
 } from '@browser-agents/runtime'
 
 import { formatBytes, getPreviewCategory, sanitizeUrl } from '../src/lib/sanitizer.ts'
+import { loadPreferences, savePreferences } from '../src/lib/preferences.ts'
 
 console.log('--- Starting Phase 05 Chat Demo Verification Suite ---')
 
@@ -389,6 +390,86 @@ console.log('Test 6: Complete End-to-End Analysis Workflow with Generated Output
   assert.equal(generatedChart.metadata.mimeType, 'image/png')
 
   console.log('Passed Test 6!')
+}
+
+// 7. Token Persistence Preference Toggle
+console.log('Test 7: Token persistence preference option...')
+{
+  const mockStorage = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => mockStorage.get(key) || null,
+    setItem: (key, val) => mockStorage.set(key, String(val)),
+    removeItem: (key) => mockStorage.delete(key),
+    clear: () => mockStorage.clear(),
+  }
+
+  // Without saveApiKey option
+  savePreferences({
+    relayUrl: 'http://127.0.0.1:8765',
+    providerName: 'Custom Endpoint',
+    baseUrl: 'https://api.openai.com/v1',
+    selectedModel: 'gpt-4o',
+    customModel: '',
+    isFixtureMode: false,
+    saveApiKey: false,
+    savedApiKey: 'sk-secret-do-not-save',
+  })
+  const loadedNoSave = loadPreferences()
+  assert.equal(loadedNoSave.saveApiKey, false)
+  assert.equal(loadedNoSave.savedApiKey, '')
+
+  // With saveApiKey enabled
+  savePreferences({
+    relayUrl: 'http://127.0.0.1:8765',
+    providerName: 'Custom Endpoint',
+    baseUrl: 'https://api.openai.com/v1',
+    selectedModel: 'gpt-4o',
+    customModel: '',
+    isFixtureMode: false,
+    saveApiKey: true,
+    savedApiKey: 'sk-user-saved-token',
+  })
+  const loadedSaved = loadPreferences()
+  assert.equal(loadedSaved.saveApiKey, true)
+  assert.equal(loadedSaved.savedApiKey, 'sk-user-saved-token')
+
+  console.log('Passed Test 7!')
+}
+
+// 8. User Uploaded vs Model Generated File Metadata Tracking
+console.log('Test 8: User uploaded vs model generated file metadata tracking...')
+{
+  const recordStore = new MemoryRecordStore()
+  const fileStore = new MemoryFileStore()
+  const stagingManager = new StagingManager()
+  const lockManager = new TabLockManager()
+  const wm = new WorkspaceManager({
+    recordStore,
+    fileStore,
+    stagingManager,
+    lockManager,
+  })
+
+  const chat = await wm.createChat('File Separation Test')
+  const ws = wm.getWorkspace(chat.id)
+
+  // Upload user file
+  await ws.writeFile('/dataset.csv', 'id,val\n1,10\n', { source: 'user' })
+
+  // Write model generated file
+  await ws.writeFile('/output_chart.png', new Uint8Array([1, 2, 3]), { source: 'model' })
+
+  const files = await ws.listFiles()
+  const userFile = files.find(f => f.path === 'dataset.csv')
+  const modelFile = files.find(f => f.path === 'output_chart.png')
+
+  assert.ok(userFile)
+  assert.equal(userFile.source, 'user')
+
+  assert.ok(modelFile)
+  assert.equal(modelFile.source, 'model')
+
+  console.log('Passed Test 8!')
 }
 
 console.log('--- ALL PHASE 05 VERIFICATION TESTS PASSED SUCCESSFULLY! ---')

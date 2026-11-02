@@ -3,16 +3,20 @@ import {
   Download,
   Eye,
   FileCode,
+  FileImage,
   FileText,
   HardDrive,
+  Sparkles,
   Trash2,
   Upload,
+  User,
 } from 'lucide-react'
-import type { WorkspaceFile } from '@browser-agents/workspace'
+import type { ToolCallRecord, WorkspaceFile } from '@browser-agents/workspace'
 import { formatBytes } from '../lib/sanitizer'
 
 interface WorkspaceFilesProps {
   files: WorkspaceFile[]
+  toolCalls?: ToolCallRecord[]
   onUploadFiles: (fileList: FileList) => Promise<void>
   onDownloadFile: (path: string) => void
   onDeleteFile: (path: string) => void
@@ -21,6 +25,7 @@ interface WorkspaceFilesProps {
 
 export function WorkspaceFiles({
   files,
+  toolCalls,
   onUploadFiles,
   onDownloadFile,
   onDeleteFile,
@@ -62,6 +67,118 @@ export function WorkspaceFiles({
     },
     [onUploadFiles],
   )
+
+  const isModelFile = useCallback(
+    (file: WorkspaceFile): boolean => {
+      const cleanPath = file.path.replace(/^\//, '')
+
+      if (toolCalls && toolCalls.length > 0) {
+        for (const tc of toolCalls) {
+          if (tc.result && typeof tc.result === 'object') {
+            const res = tc.result as {
+              files?: Record<string, unknown>
+              artifacts?: Array<{ path: string }>
+            }
+            if (res.files && Object.keys(res.files).some(p => p.replace(/^\//, '') === cleanPath)) {
+              return true
+            }
+            if (res.artifacts && res.artifacts.some(a => a.path.replace(/^\//, '') === cleanPath)) {
+              return true
+            }
+          }
+          if (tc.name === 'write_file') {
+            try {
+              const args = typeof tc.args === 'string' ? JSON.parse(tc.args) : tc.args
+              const p = args?.file_path || args?.path
+              if (typeof p === 'string' && p.replace(/^\//, '') === cleanPath) {
+                return true
+              }
+            } catch {
+              // ignore json parse errors
+            }
+          }
+        }
+        return false
+      }
+
+      return file.source === 'model'
+    },
+    [toolCalls],
+  )
+
+  const userFiles = files.filter(f => !isModelFile(f))
+  const modelFiles = files.filter(f => isModelFile(f))
+
+  const renderFileCard = (file: WorkspaceFile) => {
+    const ext = file.path.split('.').pop()?.toLowerCase() ?? ''
+    const isCode = ['py', 'js', 'ts', 'json', 'html', 'css'].includes(ext)
+    const isImage = ['png', 'jpg', 'jpeg', 'svg', 'gif', 'webp'].includes(ext)
+
+    return (
+      <div
+        key={file.path}
+        className="group flex items-center justify-between p-2 rounded bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 text-xs transition"
+      >
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onPreviewFile(file)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') onPreviewFile(file)
+          }}
+          className="flex items-center gap-2 overflow-hidden mr-2 cursor-pointer flex-1 min-w-0"
+        >
+          {isImage ? (
+            <FileImage className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+          ) : isCode ? (
+            <FileCode className="w-3.5 h-3.5 shrink-0 text-sky-400" />
+          ) : (
+            <FileText className="w-3.5 h-3.5 shrink-0 text-zinc-400" />
+          )}
+          <div className="truncate">
+            <div className="truncate font-mono text-zinc-200">{file.path}</div>
+            <div className="text-[10px] text-zinc-500 font-mono">
+              {formatBytes(file.size)}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
+          <button
+            type="button"
+            onClick={() => onPreviewFile(file)}
+            aria-label={`Preview ${file.path}`}
+            title="Preview file"
+            className="p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+          >
+            <Eye className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDownloadFile(file.path)}
+            aria-label={`Download ${file.path}`}
+            title="Download file"
+            className="p-1 rounded text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm(`Delete '${file.path}' from workspace?`)) {
+                onDeleteFile(file.path)
+              }
+            }}
+            aria-label={`Delete ${file.path}`}
+            title="Delete file"
+            className="p-1 rounded text-zinc-400 hover:text-red-400 hover:bg-zinc-800"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <aside
@@ -107,80 +224,54 @@ export function WorkspaceFiles({
         <span className="text-[11px]">Drop files here to upload to browser storage</span>
       </div>
 
-      {/* File list */}
-      <div className="flex-1 overflow-y-auto px-2 py-1 space-y-1">
+      {/* File lists separated by User Uploaded vs Model Generated */}
+      <div className="flex-1 overflow-y-auto px-2 py-1 space-y-4">
         {files.length === 0 ? (
           <div className="p-4 text-center text-xs text-zinc-500 italic">
             No files in this workspace. Upload CSV, text, or data files for the agent to use.
           </div>
         ) : (
-          files.map(file => {
-            const ext = file.path.split('.').pop()?.toLowerCase() ?? ''
-            const isCode = ['py', 'js', 'ts', 'json', 'html', 'css'].includes(ext)
-
-            return (
-              <div
-                key={file.path}
-                className="group flex items-center justify-between p-2 rounded bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 text-xs transition"
-              >
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onPreviewFile(file)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') onPreviewFile(file)
-                  }}
-                  className="flex items-center gap-2 overflow-hidden mr-2 cursor-pointer flex-1 min-w-0"
-                >
-                  {isCode ? (
-                    <FileCode className="w-3.5 h-3.5 shrink-0 text-sky-400" />
-                  ) : (
-                    <FileText className="w-3.5 h-3.5 shrink-0 text-zinc-400" />
-                  )}
-                  <div className="truncate">
-                    <div className="truncate font-mono text-zinc-200">{file.path}</div>
-                    <div className="text-[10px] text-zinc-500 font-mono">
-                      {formatBytes(file.size)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => onPreviewFile(file)}
-                    aria-label={`Preview ${file.path}`}
-                    title="Preview file"
-                    className="p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDownloadFile(file.path)}
-                    aria-label={`Download ${file.path}`}
-                    title="Download file"
-                    className="p-1 rounded text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm(`Delete '${file.path}' from workspace?`)) {
-                        onDeleteFile(file.path)
-                      }
-                    }}
-                    aria-label={`Delete ${file.path}`}
-                    title="Delete file"
-                    className="p-1 rounded text-zinc-400 hover:text-red-400 hover:bg-zinc-800"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+          <>
+            {/* User Uploaded Section */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-zinc-400">
+                <span className="flex items-center gap-1.5 text-zinc-300">
+                  <User className="w-3.5 h-3.5 text-sky-400" />
+                  <span>User Uploaded</span>
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono">
+                  {userFiles.length}
+                </span>
               </div>
-            )
-          })
+              {userFiles.length === 0 ? (
+                <div className="px-2 py-2 text-[11px] text-zinc-600 italic">
+                  No user uploaded files
+                </div>
+              ) : (
+                <div className="space-y-1">{userFiles.map(renderFileCard)}</div>
+              )}
+            </div>
+
+            {/* Model Generated Section */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-zinc-400">
+                <span className="flex items-center gap-1.5 text-zinc-300">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Model Generated</span>
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono">
+                  {modelFiles.length}
+                </span>
+              </div>
+              {modelFiles.length === 0 ? (
+                <div className="px-2 py-2 text-[11px] text-zinc-600 italic">
+                  No model generated files yet
+                </div>
+              ) : (
+                <div className="space-y-1">{modelFiles.map(renderFileCard)}</div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </aside>

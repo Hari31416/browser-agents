@@ -154,6 +154,7 @@ export class ChatWorkspace implements WorkspaceStore {
       mimeType,
       version,
       etag: hash,
+      source: opts.source ?? existingMeta?.source,
       createdAt: existingMeta ? existingMeta.createdAt : now,
       updatedAt: now,
     }
@@ -183,6 +184,7 @@ export class ChatWorkspace implements WorkspaceStore {
       size: meta.size,
       version: meta.version,
       etag: meta.etag,
+      source: meta.source,
       createdAt: meta.createdAt,
       updatedAt: meta.updatedAt,
     }

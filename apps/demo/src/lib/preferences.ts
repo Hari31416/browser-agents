@@ -9,6 +9,8 @@ const DEFAULT_PREFERENCES: ProviderPreferences = {
   selectedModel: '',
   customModel: '',
   isFixtureMode: false,
+  saveApiKey: false,
+  savedApiKey: '',
 }
 
 export function loadPreferences(): ProviderPreferences {
@@ -21,6 +23,7 @@ export function loadPreferences(): ProviderPreferences {
       return DEFAULT_PREFERENCES
     }
     const parsed = JSON.parse(raw) as Partial<ProviderPreferences>
+    const saveApiKey = Boolean(parsed.saveApiKey)
     return {
       relayUrl: typeof parsed.relayUrl === 'string' && parsed.relayUrl.trim() ? parsed.relayUrl : DEFAULT_PREFERENCES.relayUrl,
       providerName: typeof parsed.providerName === 'string' ? parsed.providerName : DEFAULT_PREFERENCES.providerName,
@@ -28,6 +31,8 @@ export function loadPreferences(): ProviderPreferences {
       selectedModel: typeof parsed.selectedModel === 'string' ? parsed.selectedModel : '',
       customModel: typeof parsed.customModel === 'string' ? parsed.customModel : '',
       isFixtureMode: Boolean(parsed.isFixtureMode),
+      saveApiKey,
+      savedApiKey: saveApiKey && typeof parsed.savedApiKey === 'string' ? parsed.savedApiKey : '',
     }
   } catch {
     return DEFAULT_PREFERENCES
@@ -37,6 +42,7 @@ export function loadPreferences(): ProviderPreferences {
 export function savePreferences(preferences: ProviderPreferences): void {
   try {
     if (typeof localStorage === 'undefined') return
+    const saveApiKey = Boolean(preferences.saveApiKey)
     const safePayload: ProviderPreferences = {
       relayUrl: preferences.relayUrl.trim(),
       providerName: preferences.providerName.trim(),
@@ -44,6 +50,8 @@ export function savePreferences(preferences: ProviderPreferences): void {
       selectedModel: preferences.selectedModel.trim(),
       customModel: preferences.customModel.trim(),
       isFixtureMode: preferences.isFixtureMode,
+      saveApiKey,
+      ...(saveApiKey && preferences.savedApiKey ? { savedApiKey: preferences.savedApiKey.trim() } : {}),
     }
     localStorage.setItem(PREFERENCES_KEY, JSON.stringify(safePayload))
   } catch {

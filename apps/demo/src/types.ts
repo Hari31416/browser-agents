@@ -7,6 +7,8 @@ export interface ProviderPreferences {
   selectedModel: string
   customModel: string
   isFixtureMode: boolean
+  saveApiKey?: boolean
+  savedApiKey?: string
 }
 
 export type PythonRuntimeStatus =

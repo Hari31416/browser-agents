@@ -179,6 +179,7 @@ export class AgentRuntime {
 
     // Load initial files from workspace if present
     const initialFiles: Record<string, FileRecord> = { ...(options.initialFiles ?? {}) }
+    const initialFileSources = new Map<string, 'user' | 'model' | undefined>()
     if (this.workspace) {
       try {
         const wsFiles = await this.workspace.listFiles()
@@ -192,6 +193,7 @@ export class AgentRuntime {
             created_at: f.createdAt || now,
             modified_at: f.updatedAt || now,
           }
+          initialFileSources.set(f.path.replace(/^\//, ''), f.source)
         }
       } catch (err) {
         console.warn('Failed to load initial workspace files:', err)
@@ -211,7 +213,7 @@ export class AgentRuntime {
         onFileGenerated: async (path, data, mimeType) => {
           if (this.workspace) {
             try {
-              await this.workspace.writeFile(path, data, { mimeType })
+              await this.workspace.writeFile(path, data, { mimeType, source: 'model' })
             } catch (err) {
               console.warn(`Failed to commit generated Python file '${path}' to workspace:`, err)
             }
@@ -494,10 +496,23 @@ export class AgentRuntime {
       if (this.workspace && lastState.files) {
         for (const [filePath, fileData] of Object.entries(lastState.files)) {
           try {
+            const normKey = filePath.startsWith('/') ? filePath : '/' + filePath
             const cleanPath = filePath.startsWith('/') ? filePath.slice(1) : filePath
+            const wasInitial = Boolean(initialFiles[normKey])
+
+            // If it was already in initialFiles and content hasn't changed, skip re-writing
+            if (wasInitial && initialFiles[normKey].content === fileData.content) {
+              continue
+            }
+
+            const source = wasInitial
+              ? (initialFileSources.get(cleanPath) ?? 'user')
+              : 'model'
+
             await this.workspace.writeFile(cleanPath, fileData.content, {
               encoding: fileData.encoding === 'base64' ? 'binary' : 'utf-8',
               mimeType: fileData.mimeType,
+              source,
             })
           } catch (err) {
             console.warn(`Failed to persist file '${filePath}' to workspace:`, err)

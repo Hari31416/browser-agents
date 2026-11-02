@@ -119,6 +119,49 @@ export function App() {
     }
   }, [])
 
+  // --- Auto-reconnect if saved token is present in preferences ---
+  useEffect(() => {
+    let active = true
+    const autoConnect = async () => {
+      if (
+        preferences.isFixtureMode ||
+        !preferences.saveApiKey ||
+        !preferences.savedApiKey ||
+        !preferences.baseUrl
+      ) {
+        return
+      }
+      try {
+        const client = relayClientRef.current
+        const token = await client.createSession()
+        if (!active) return
+        setSessionToken(token)
+        const manualModels = preferences.customModel.trim()
+          ? [preferences.customModel.trim()]
+          : undefined
+        const providerRes = await client.registerProvider({
+          base_url: preferences.baseUrl.trim(),
+          api_key: preferences.savedApiKey.trim() || undefined,
+          models: manualModels,
+        })
+        if (!active) return
+        setCurrentProvider(providerRes)
+      } catch {
+        // Relay might be offline or starting up; ignore silent auto-connect failure
+      }
+    }
+    autoConnect()
+    return () => {
+      active = false
+    }
+  }, [
+    preferences.baseUrl,
+    preferences.customModel,
+    preferences.isFixtureMode,
+    preferences.saveApiKey,
+    preferences.savedApiKey,
+  ])
+
   // --- Load Chat Data when activeChatId changes ---
   const loadChatData = useCallback(async (chatId: string) => {
     const wm = workspaceManagerRef.current
@@ -232,7 +275,7 @@ export function App() {
       const arrayBuffer = await file.arrayBuffer()
       const bytes = new Uint8Array(arrayBuffer)
       const path = file.name.startsWith('/') ? file.name : `/${file.name}`
-      await ws.writeFile(path, bytes, { mimeType: file.type || 'application/octet-stream' })
+      await ws.writeFile(path, bytes, { mimeType: file.type || 'application/octet-stream', source: 'user' })
     }
 
     const updatedFiles = await ws.listFiles()
@@ -354,7 +397,7 @@ export function App() {
       pythonExecutor = new MockPythonExecutor(async () => {
         setPythonState({ status: 'running', packages: ['numpy', 'pandas', 'matplotlib'] })
         const sampleOut = 'Dataset rows: 100\nColumns: 4\nMean calculation: 42.5\n'
-        await ws.writeFile(fixtureResponseFile, sampleOut, { mimeType: 'text/plain' })
+        await ws.writeFile(fixtureResponseFile, sampleOut, { mimeType: 'text/plain', source: 'model' })
         setPythonState({ status: 'ready', packages: ['numpy', 'pandas', 'matplotlib'] })
         return {
           ok: true,
@@ -481,6 +524,7 @@ export function App() {
     })
 
     // Instantiate AgentRuntime
+    let currentTurnText = ''
     const runtime = new AgentRuntime({
       chatId: activeChatId,
       model,
@@ -496,7 +540,8 @@ export function App() {
       },
       onEvent: async (event: AgentEvent) => {
         if (event.type === 'text:delta') {
-          setActiveRun(prev => prev ? { ...prev, streamingText: prev.streamingText + event.delta } : null)
+          currentTurnText += event.delta
+          setActiveRun(prev => prev ? { ...prev, streamingText: currentTurnText } : null)
         } else if (event.type === 'run:step') {
           setActiveRun(prev => prev ? { ...prev, step: event.stepNumber } : null)
         } else if (event.type === 'plan:update') {
@@ -511,6 +556,22 @@ export function App() {
             updatedAt: nowStr,
           })))
         } else if (event.type === 'tool:start') {
+          // If LLM emitted text before this tool call, commit it so messages and tool calls stay intermingled
+          if (currentTurnText.trim().length > 0) {
+            const turnContent = currentTurnText.trim()
+            currentTurnText = ''
+            const turnMsg: ChatMessageRecord = {
+              id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
+              chatId: activeChatId,
+              role: 'assistant',
+              content: turnContent,
+              createdAt: new Date(Date.parse(event.timestamp) - 1).toISOString(),
+            }
+            await wm.addMessage(turnMsg)
+            setMessages(prev => [...prev, turnMsg])
+            setActiveRun(prev => prev ? { ...prev, streamingText: '' } : null)
+          }
+
           const tcRecord: ToolCallRecord = {
             id: event.callId,
             runId: event.runId,
@@ -551,13 +612,14 @@ export function App() {
     try {
       const result = await runtime.run(promptText)
 
-      // Add assistant response to messages
-      if (result.summary.outputText) {
+      // Add assistant response to messages for remaining text
+      const remainingText = currentTurnText.trim() || result.summary.outputText
+      if (remainingText) {
         const assistantMsg: ChatMessageRecord = {
           id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
           chatId: activeChatId,
           role: 'assistant',
-          content: result.summary.outputText,
+          content: remainingText,
           createdAt: new Date().toISOString(),
         }
         await wm.addMessage(assistantMsg)
@@ -655,6 +717,7 @@ export function App() {
       {/* Workspace Files Panel */}
       <WorkspaceFiles
         files={files}
+        toolCalls={toolCalls}
         onUploadFiles={handleUploadFiles}
         onDownloadFile={handleDownloadFile}
         onDeleteFile={handleDeleteFile}

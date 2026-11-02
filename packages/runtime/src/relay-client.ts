@@ -224,9 +224,20 @@ export class RelayClient {
         parseEvent(buffer)
       }
 
-      for (const call of calls) {
-        if (!call || !call.id || !call.name) {
-          throw new Error('Incomplete tool call received from upstream')
+      const validCalls = calls.filter((c): c is { id: string; name: string; args: string } => {
+        return Boolean(c && (c.name?.trim() || c.args?.trim() || c.id?.trim()))
+      })
+
+      for (let i = 0; i < validCalls.length; i++) {
+        const call = validCalls[i]
+        if (!call.id) {
+          call.id = `call_${Math.random().toString(36).slice(2)}_${Date.now()}_${i}`
+        }
+        if (!call.name) {
+          throw new Error('Incomplete tool call received from upstream: missing tool name')
+        }
+        if (!call.args || !call.args.trim()) {
+          call.args = '{}'
         }
         try {
           JSON.parse(call.args)
@@ -237,7 +248,7 @@ export class RelayClient {
         }
       }
 
-      return { text, calls }
+      return { text, calls: validCalls }
     } finally {
       await reader.cancel().catch(() => {})
       reader.releaseLock()
