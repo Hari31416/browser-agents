@@ -486,6 +486,7 @@ export function App() {
       workspace: ws,
       pythonExecutor,
       recordStore: wm.recordStore,
+      systemPrompt: 'Autonomous browser agent with isolated file tools and Python WebAssembly runtime.',
       limits: {
         maxSteps: 25,
         timeoutMs: 120_000,

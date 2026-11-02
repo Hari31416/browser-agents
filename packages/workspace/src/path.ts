@@ -1,12 +1,19 @@
 import { InvalidPathError } from './errors.js'
 
-export function normalizePath(rawPath: string): string {
+export interface NormalizePathOptions {
+  allowRoot?: boolean
+}
+
+export function normalizePath(rawPath: string, options?: NormalizePathOptions): string {
   if (typeof rawPath !== 'string') {
     throw new InvalidPathError('Path must be a string')
   }
 
   const trimmed = rawPath.trim()
   if (!trimmed) {
+    if (options?.allowRoot) {
+      return '/'
+    }
     throw new InvalidPathError('Path cannot be empty')
   }
 
@@ -50,6 +57,9 @@ export function normalizePath(rawPath: string): string {
   }
 
   if (stack.length === 0) {
+    if (options?.allowRoot) {
+      return '/'
+    }
     throw new InvalidPathError(`Path '${rawPath}' resolves to workspace root`)
   }
 

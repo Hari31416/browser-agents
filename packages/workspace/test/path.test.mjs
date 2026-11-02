@@ -38,6 +38,15 @@ assert.throws(() => normalizePath('.'), InvalidPathError)
 assert.throws(() => normalizePath('./'), InvalidPathError)
 assert.throws(() => normalizePath('///'), InvalidPathError)
 
+// 5b. Root path allowed when allowRoot is enabled
+assert.equal(normalizePath('/', { allowRoot: true }), '/')
+assert.equal(normalizePath('.', { allowRoot: true }), '/')
+assert.equal(normalizePath('./', { allowRoot: true }), '/')
+assert.equal(normalizePath('', { allowRoot: true }), '/')
+assert.equal(normalizePath('///', { allowRoot: true }), '/')
+assert.throws(() => normalizePath('..', { allowRoot: true }), InvalidPathError)
+assert.throws(() => normalizePath('../../secret.txt', { allowRoot: true }), InvalidPathError)
+
 // 6. MIME type resolution
 assert.equal(getMimeType('data.csv'), 'text/csv')
 assert.equal(getMimeType('report.md'), 'text/markdown')

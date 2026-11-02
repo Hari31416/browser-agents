@@ -97,10 +97,14 @@ export function createBrowserDeepAgent(
       if (FORBIDDEN_TOOLS.has(request.toolCall.name)) {
         throw new Error(`Tool disabled in browser runtime: ${request.toolCall.name}`)
       }
+      const isDirectoryTool =
+        request.toolCall.name === 'ls' ||
+        request.toolCall.name === 'list_directory' ||
+        request.toolCall.name === 'glob'
       const args = request.toolCall.args as Record<string, unknown> | undefined
       const filePath = args?.file_path ?? args?.path
       if (typeof filePath === 'string') {
-        const check = validateToolPath(filePath)
+        const check = validateToolPath(filePath, { allowRoot: isDirectoryTool })
         if (!check.valid) {
           return new ToolMessage({
             tool_call_id: request.toolCall.id || '',
@@ -108,6 +112,18 @@ export function createBrowserDeepAgent(
             content: JSON.stringify({ error: check.error || 'Access denied: invalid file path' }),
             status: 'error',
           })
+        }
+        if (isDirectoryTool && check.normalized === '/') {
+          if (args && 'path' in args) {
+            args.path = '/'
+          }
+          if (args && 'file_path' in args) {
+            args.file_path = '/'
+          }
+        }
+      } else if (isDirectoryTool && filePath === undefined) {
+        if (args) {
+          args.path = '/'
         }
       }
       return handler(request)

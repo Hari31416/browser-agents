@@ -483,6 +483,42 @@ console.log('Test 9: Security boundary enforcement...')
   assert.ok(tc)
   assert.equal(tc.status, 'error')
   assert.match(String(tc.content), /denied|boundary|traversal/i)
+
+  // 9b. Directory listing with '/' and '.' should be permitted for directory tools
+  const lsModel = new ScriptedChatModel([
+    {
+      toolCalls: [
+        {
+          name: 'ls',
+          args: { path: '/' },
+          id: 'call_ls_root',
+        },
+        {
+          name: 'ls',
+          args: { path: '.' },
+          id: 'call_ls_dot',
+        },
+      ],
+    },
+    {
+      text: 'Explored directory.',
+    },
+  ])
+
+  const lsRuntime = new AgentRuntime({
+    chatId: 'chat-security',
+    model: lsModel,
+    workspace,
+  })
+
+  const lsResult = await lsRuntime.run('List files')
+  assert.equal(lsResult.ok, true)
+  const lsRoot = lsResult.summary.toolCalls.find(t => t.id === 'call_ls_root')
+  assert.ok(lsRoot)
+  assert.notEqual(lsRoot.status, 'error')
+  const lsDot = lsResult.summary.toolCalls.find(t => t.id === 'call_ls_dot')
+  assert.ok(lsDot)
+  assert.notEqual(lsDot.status, 'error')
 }
 console.log('Passed Test 9!')
 

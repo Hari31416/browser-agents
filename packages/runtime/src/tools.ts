@@ -107,13 +107,27 @@ export function createPythonTool(context: PythonToolContext) {
   )
 }
 
-export function validateToolPath(pathInput: unknown): { valid: boolean; normalized?: string; error?: string } {
-  if (typeof pathInput !== 'string' || !pathInput.trim()) {
+export interface ValidateToolPathOptions {
+  allowRoot?: boolean
+}
+
+export function validateToolPath(
+  pathInput: unknown,
+  options?: ValidateToolPathOptions,
+): { valid: boolean; normalized?: string; error?: string } {
+  if (typeof pathInput !== 'string') {
+    return { valid: false, error: 'File path must be a non-empty string' }
+  }
+
+  if (!pathInput.trim()) {
+    if (options?.allowRoot) {
+      return { valid: true, normalized: '/' }
+    }
     return { valid: false, error: 'File path must be a non-empty string' }
   }
 
   try {
-    const normalized = normalizePath(pathInput)
+    const normalized = normalizePath(pathInput, options)
     return { valid: true, normalized }
   } catch (err) {
     return {

@@ -230,12 +230,31 @@ export class AgentRuntime {
       customTools.push(pyTool)
     }
 
+    // Prepare effective system prompt including workspace files if present
+    let effectiveSystemPrompt = this.systemPrompt
+    const fileKeys = Object.keys(initialFiles)
+    if (fileKeys.length > 0) {
+      const fileDescriptions = fileKeys
+        .map(path => {
+          const rec = initialFiles[path]
+          const size =
+            typeof rec.content === 'string'
+              ? rec.content.length
+              : rec.content
+                ? (rec.content as Uint8Array).byteLength
+                : 0
+          return `- ${path} (${size} bytes${rec.mimeType ? `, ${rec.mimeType}` : ''})`
+        })
+        .join('\n')
+      effectiveSystemPrompt += `\n\nWorkspace files currently available:\n${fileDescriptions}\nYou can access these files using file tools (like read_file) or execute_python.`
+    }
+
     // Create Deep Agent instance
     const agent = createBrowserDeepAgent({
       model: this.model,
       backend: new StateBackend(),
       tools: customTools,
-      systemPrompt: this.systemPrompt,
+      systemPrompt: effectiveSystemPrompt,
     })
 
     const initialMessages: Array<{ role: string; content: string }> = [
