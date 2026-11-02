@@ -189,6 +189,26 @@ onmessage = async ({ data }) => {
       py.setStderr({ batched: collect('stderr') });
 
       const value = await py.runPythonAsync(data.code);
+
+      // Ensure any files generated directly in virtual root are brought into /workspace
+      const systemEntries = new Set(['.', '..', 'tmp', 'home', 'dev', 'proc', 'workspace', 'lib', 'etc']);
+      try {
+        const rootEntries = py.FS.readdir('/');
+        for (const entry of rootEntries) {
+          if (systemEntries.has(entry)) continue;
+          const fullRootPath = '/' + entry;
+          const destPath = '/workspace/' + entry;
+          try {
+            const stat = py.FS.stat(fullRootPath);
+            if (py.FS.isFile(stat.mode)) {
+              const bytes = py.FS.readFile(fullRootPath);
+              py.FS.writeFile(destPath, bytes);
+              py.FS.unlink(fullRootPath);
+            }
+          } catch {}
+        }
+      } catch {}
+
       const files = readFilesRecursive('/workspace', '');
 
       value?.destroy?.();

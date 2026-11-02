@@ -113,6 +113,7 @@ export interface WorkerRunMessage {
   type: 'run'
   prompt: string
   files?: Record<string, FileRecord>
+  systemPrompt?: string
 }
 
 export interface WorkerReadyMessage {

@@ -87,7 +87,7 @@ console.log('Test 1: Headless multi-step plan, file, and Python execution...')
       toolCalls: [
         {
           name: 'read_file',
-          args: { file_path: '/data.csv' },
+          args: { file_path: 'data.csv' },
           id: 'call_read_1',
         },
       ],
@@ -211,7 +211,7 @@ console.log('Test 2: Second compatible endpoint without changing the loop...')
         },
         {
           name: 'write_file',
-          args: { file_path: '/output_b.txt', content: 'Output from Model B' },
+          args: { file_path: 'output_b.txt', content: 'Output from Model B' },
           id: 'call_b_2',
         },
       ],
@@ -483,6 +483,35 @@ console.log('Test 9: Security boundary enforcement...')
   assert.ok(tc)
   assert.equal(tc.status, 'error')
   assert.match(String(tc.content), /denied|boundary|traversal/i)
+
+  // 9a2. Model attempting absolute path should be rejected
+  const absolutePathModel = new ScriptedChatModel([
+    {
+      toolCalls: [
+        {
+          name: 'read_file',
+          args: { file_path: '/secret.txt' },
+          id: 'call_absolute',
+        },
+      ],
+    },
+    {
+      text: 'Handled absolute path rejection.',
+    },
+  ])
+
+  const absRuntime = new AgentRuntime({
+    chatId: 'chat-security',
+    model: absolutePathModel,
+    workspace,
+  })
+
+  const absResult = await absRuntime.run('Attempt absolute path')
+  assert.equal(absResult.ok, true)
+  const absTc = absResult.summary.toolCalls.find(t => t.id === 'call_absolute')
+  assert.ok(absTc)
+  assert.equal(absTc.status, 'error')
+  assert.match(String(absTc.content), /absolute paths?.*not allowed/i)
 
   // 9b. Directory listing with '/' and '.' should be permitted for directory tools
   const lsModel = new ScriptedChatModel([

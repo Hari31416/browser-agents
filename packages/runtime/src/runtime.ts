@@ -59,9 +59,12 @@ export class AgentRuntime {
     this.recordStore = options.recordStore
     this.systemPrompt =
       options.systemPrompt ??
-      'You are a helpful agent executing in a sandboxed browser environment. ' +
-        'Use write_todos to maintain a plan. Use file and Python tools as needed. ' +
-        'Always complete your plan before finishing.'
+      'You are a helpful agent executing in a sandboxed browser environment with local workspace files and Python WebAssembly runtime.\n' +
+        'File and path rules:\n' +
+        '- All workspace files are located in the current working directory.\n' +
+        '- ALWAYS use relative file paths (e.g., "data.csv", "./output.png"). NEVER use absolute paths starting with "/" (e.g., "/data.csv" or "/output.png"); absolute paths are strictly disallowed and will fail.\n' +
+        '- When writing Python code, always read and save files in the current working directory using relative paths (e.g., pd.read_csv("data.csv"), plt.savefig("plot.png")). All generated files in the working directory are automatically saved to the workspace.\n' +
+        '- Use write_todos to maintain a plan. Complete your plan before finishing.'
 
     this.limits = {
       ...DEFAULT_LIMITS,
@@ -236,6 +239,7 @@ export class AgentRuntime {
     if (fileKeys.length > 0) {
       const fileDescriptions = fileKeys
         .map(path => {
+          const cleanPath = path.startsWith('/') ? path.slice(1) : path
           const rec = initialFiles[path]
           const size =
             typeof rec.content === 'string'
@@ -243,11 +247,17 @@ export class AgentRuntime {
               : rec.content
                 ? (rec.content as Uint8Array).byteLength
                 : 0
-          return `- ${path} (${size} bytes${rec.mimeType ? `, ${rec.mimeType}` : ''})`
+          return `- ${cleanPath} (${size} bytes${rec.mimeType ? `, ${rec.mimeType}` : ''})`
         })
         .join('\n')
-      effectiveSystemPrompt += `\n\nWorkspace files currently available:\n${fileDescriptions}\nYou can access these files using file tools (like read_file) or execute_python.`
+      effectiveSystemPrompt += `\n\nWorkspace files currently available in the current working directory:\n${fileDescriptions}`
     }
+
+    effectiveSystemPrompt +=
+      `\n\nFile & Path Execution Rules:\n` +
+      `- All workspace files reside in the current working directory.\n` +
+      `- ALWAYS use relative paths (e.g., 'data.csv', './plot.png'). NEVER use absolute paths (e.g., '/data.csv', '/plot.png') as absolute paths are strictly disallowed and will be rejected.\n` +
+      `- When executing Python code with execute_python, always save generated charts and output files using relative paths in the current working directory (e.g., plt.savefig('plot.png')) so they are preserved in the workspace.`
 
     // Create Deep Agent instance
     const agent = createBrowserDeepAgent({

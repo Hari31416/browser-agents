@@ -48,6 +48,23 @@ function summarizeState(
   }
 }
 
+const DEFAULT_WORKER_SYSTEM_PROMPT =
+  'You are an autonomous technical assistant running directly inside the user browser sandbox with access to local workspace files and Python execution.\n\n' +
+  'Workflow:\n' +
+  '1. Plan First: Call write_todos at the start of any multi-step task. Keep todo items concise and update their statuses to in_progress and completed as you work. Complete all planned tasks before giving your final answer.\n' +
+  '2. Inspect Before Acting: When asked to analyze data, inspect existing files first (check column names, types, structure) before writing processing scripts or charts.\n' +
+  '3. Path and File Conventions:\n' +
+  '- All workspace files reside in your current working directory.\n' +
+  '- Always use relative file paths (e.g., "data.csv", "./output.png", "reports/summary.txt").\n' +
+  '- Never use absolute paths starting with "/" (e.g., "/data.csv" or "/output.png"). Absolute paths are strictly disallowed and will fail.\n' +
+  '4. Python Execution:\n' +
+  '- When using execute_python, write self-contained Python code. NumPy, pandas, and matplotlib are pre-installed.\n' +
+  '- Always save output charts and generated datasets to the current working directory using relative filenames (e.g., plt.savefig("chart.png")). All files saved in the current directory are automatically stored in the user workspace.\n' +
+  '- Review stdout and stderr in execution results. If a script fails, fix the code and re-run.\n' +
+  '5. Final Delivery:\n' +
+  '- Summarize your findings directly and cite key numbers.\n' +
+  '- Explicitly list the relative paths of all files created or modified.'
+
 self.onmessage = async (event: MessageEvent<WorkerInboundMessage>) => {
   const data = event.data
 
@@ -68,14 +85,33 @@ self.onmessage = async (event: MessageEvent<WorkerInboundMessage>) => {
         return
       }
 
+      const initialFiles = data.files || {}
+
+      let effectiveSystemPrompt = data.systemPrompt ?? DEFAULT_WORKER_SYSTEM_PROMPT
+      const fileKeys = Object.keys(initialFiles)
+      if (fileKeys.length > 0) {
+        const fileDescriptions = fileKeys
+          .map(path => {
+            const cleanPath = path.startsWith('/') ? path.slice(1) : path
+            const rec = initialFiles[path]
+            const size =
+              typeof rec.content === 'string'
+                ? rec.content.length
+                : rec.content
+                  ? (rec.content as Uint8Array).byteLength
+                  : 0
+            return `- ${cleanPath} (${size} bytes${rec.mimeType ? `, ${rec.mimeType}` : ''})`
+          })
+          .join('\n')
+        effectiveSystemPrompt += `\n\nWorkspace files currently available in the current working directory:\n${fileDescriptions}`
+      }
+
       const agent = createBrowserDeepAgent({
         model: relayModel,
         backend: new StateBackend(),
-        systemPrompt:
-          'You are an agent executing in the user browser workspace. Use write_todos to plan your steps before taking actions. Always record and complete todos.',
+        systemPrompt: effectiveSystemPrompt,
       })
 
-      const initialFiles = data.files || {}
       const input = {
         messages: [{ role: 'user', content: data.prompt }],
         files: initialFiles,

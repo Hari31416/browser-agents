@@ -99,7 +99,7 @@ export function createPythonTool(context: PythonToolContext) {
     {
       name: 'execute_python',
       description:
-        'Execute Python code in an isolated browser environment. Python has NumPy, pandas, and matplotlib pre-installed. Workspace files are available in current working directory. Returns stdout, stderr, and output file artifacts.',
+        'Execute Python code in an isolated browser environment. Python has NumPy, pandas, and matplotlib pre-installed. Workspace files are available in the current working directory. Always use relative file paths (e.g., "plot.png" or "./plot.png") to read and save files; never use absolute paths starting with "/". Returns stdout, stderr, and output file artifacts.',
       schema: z.object({
         code: z.string().describe('The Python code to execute.'),
       }),
@@ -119,11 +119,23 @@ export function validateToolPath(
     return { valid: false, error: 'File path must be a non-empty string' }
   }
 
-  if (!pathInput.trim()) {
+  const trimmed = pathInput.trim()
+  if (!trimmed) {
     if (options?.allowRoot) {
       return { valid: true, normalized: '/' }
     }
     return { valid: false, error: 'File path must be a non-empty string' }
+  }
+
+  // Reject absolute paths; only directory listing tools with allowRoot may query '/'
+  if (trimmed.startsWith('/') || trimmed.startsWith('\\') || /^[a-zA-Z]:/.test(trimmed)) {
+    if (options?.allowRoot && (trimmed === '/' || trimmed === '///')) {
+      return { valid: true, normalized: '/' }
+    }
+    return {
+      valid: false,
+      error: `Access denied: absolute paths like '${pathInput}' are not allowed. Please use relative paths (e.g. 'Iris.csv' or './Iris.csv') relative to the workspace root.`,
+    }
   }
 
   try {

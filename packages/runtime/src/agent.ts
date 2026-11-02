@@ -87,10 +87,23 @@ export function createBrowserDeepAgent(
   const boundary = createMiddleware({
     name: 'BrowserToolBoundary',
     wrapModelCall: (request, handler) => {
-      const filtered = request.tools?.filter(tool => {
-        const name = 'name' in tool ? (tool.name as string) : undefined
-        return !name || !FORBIDDEN_TOOLS.has(name)
-      })
+      const filtered = request.tools
+        ?.filter(tool => {
+          const name = 'name' in tool ? (tool.name as string) : undefined
+          return !name || !FORBIDDEN_TOOLS.has(name)
+        })
+        .map(tool => {
+          const toolObj = tool as { name?: string; description?: string }
+          if (toolObj.description && /must be absolute/i.test(toolObj.description)) {
+            return {
+              ...toolObj,
+              description: toolObj.description
+                .replace(/must be absolute, not relative/gi, 'must be relative, not absolute')
+                .replace(/absolute path/gi, 'relative path'),
+            }
+          }
+          return tool
+        })
       return handler({ ...request, tools: filtered })
     },
     wrapToolCall: (request, handler) => {
@@ -113,13 +126,14 @@ export function createBrowserDeepAgent(
             status: 'error',
           })
         }
-        if (isDirectoryTool && check.normalized === '/') {
-          if (args && 'path' in args) {
-            args.path = '/'
-          }
-          if (args && 'file_path' in args) {
-            args.file_path = '/'
-          }
+        // StateBackend stores file keys prefixed with '/', map valid relative paths for StateBackend
+        const internalPath =
+          isDirectoryTool && check.normalized === '/' ? '/' : '/' + check.normalized
+        if (args && 'path' in args) {
+          args.path = internalPath
+        }
+        if (args && 'file_path' in args) {
+          args.file_path = internalPath
         }
       } else if (isDirectoryTool && filePath === undefined) {
         if (args) {
@@ -135,6 +149,20 @@ export function createBrowserDeepAgent(
   const params = {
     ...options,
     subagents: [],
+    customToolDescriptions: {
+      read_file:
+        'Read file from workspace using relative path (e.g., "data.csv" or "./data.csv"). Absolute paths are strictly disallowed.',
+      write_file:
+        'Write or update file in workspace using relative path (e.g., "output.txt" or "./output.txt"). Absolute paths are strictly disallowed.',
+      edit_file:
+        'Edit file in workspace using relative path. Absolute paths are strictly disallowed.',
+      delete:
+        'Delete file in workspace using relative path. Absolute paths are strictly disallowed.',
+      ls: 'List files in workspace. Use "." or empty path for workspace root.',
+      list_directory: 'List files in workspace. Use "." or empty path for workspace root.',
+      glob: 'Find files matching pattern in workspace.',
+      grep: 'Search workspace files using regex.',
+    },
     backend: async (runtime: BackendRuntime<unknown>) =>
       explicitBackend(
         typeof backend === 'function' ? await backend(runtime) : backend,

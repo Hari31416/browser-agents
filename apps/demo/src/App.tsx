@@ -465,17 +465,18 @@ export function App() {
       providerName: preferences.providerName,
       baseUrl: preferences.baseUrl,
       model: preferences.selectedModel || preferences.customModel || 'fixture-model',
-      systemPrompt: 'Autonomous browser agent with isolated file tools and Python WebAssembly runtime.',
+      systemPrompt:
+        'Autonomous browser agent with isolated file tools and Python WebAssembly runtime. All workspace files reside in the current working directory. Always use relative file paths (e.g., "Iris.csv", "./output.png"); never use absolute paths starting with "/". When generating files with Python, always save to the current working directory using relative paths so they are preserved in the workspace.',
       messages: [
         ...messages.map(m => ({ role: m.role, content: m.content || '' })),
         { role: 'user', content: promptText },
       ],
       tools: [
         { name: 'write_todos', description: 'Create and update step-by-step task plan' },
-        { name: 'execute_python', description: 'Run Python in isolated browser WebAssembly sandbox' },
-        { name: 'read_file', description: 'Read file from chat workspace' },
-        { name: 'write_file', description: 'Write or update file in chat workspace' },
-        { name: 'list_directory', description: 'List files in chat workspace' },
+        { name: 'execute_python', description: 'Run Python in isolated browser WebAssembly sandbox. Save output files using relative paths (e.g., "plot.png") in the current working directory' },
+        { name: 'read_file', description: 'Read file from chat workspace using relative path (e.g., "data.csv")' },
+        { name: 'write_file', description: 'Write or update file in chat workspace using relative path (e.g., "output.txt")' },
+        { name: 'list_directory', description: 'List files in chat workspace ("." for root)' },
       ],
     })
 
@@ -486,7 +487,8 @@ export function App() {
       workspace: ws,
       pythonExecutor,
       recordStore: wm.recordStore,
-      systemPrompt: 'Autonomous browser agent with isolated file tools and Python WebAssembly runtime.',
+      systemPrompt:
+        'Autonomous browser agent with isolated file tools and Python WebAssembly runtime. All workspace files reside in the current working directory. Always use relative file paths (e.g., "Iris.csv", "./output.png"); never use absolute paths starting with "/". When generating files with Python, always save to the current working directory using relative paths so they are preserved in the workspace.',
       limits: {
         maxSteps: 25,
         timeoutMs: 120_000,
