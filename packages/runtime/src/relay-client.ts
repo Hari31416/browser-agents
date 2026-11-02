@@ -232,7 +232,7 @@ export class RelayClient {
           JSON.parse(call.args)
         } catch (err) {
           throw new InvalidToolArgumentsError(
-            `Invalid JSON arguments for tool ${call.name}: ${String(err)}`,
+            `Invalid JSON arguments for tool ${call.name}: ${String(err)} (raw args: ${JSON.stringify(call.args)})`,
           )
         }
       }
