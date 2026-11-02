@@ -10,7 +10,7 @@ export type { HashApi } from './sha256.js'
 export { RelayClient, InvalidToolArgumentsError } from './relay-client.js'
 export type { ParsedChatResult } from './relay-client.js'
 
-export { RelayChatModel, ScriptedChatModel } from './model-adapter.js'
+export { RelayChatModel, OpenAIChatModel, ScriptedChatModel } from './model-adapter.js'
 export type { ScriptedTurn } from './model-adapter.js'
 
 export { AgentRuntime, DEFAULT_LIMITS } from './runtime.js'
@@ -79,3 +79,5 @@ export type {
   WorkerResultMessage,
   WorkerRunMessage,
 } from './types.js'
+
+export { DirectClient, normalizeEndpoint } from './direct-client.js'

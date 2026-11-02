@@ -76,7 +76,7 @@ export function createBrowserDeepAgent(
   options: CreateBrowserDeepAgentOptions,
 ): ReturnType<typeof createDeepAgent> {
   if (!options?.model || typeof options.model === 'string') {
-    throw new Error('Provide an explicit browser model adapter; provider setup belongs to the relay.')
+    throw new Error('Provide an explicit browser model adapter; configure a direct or relay connection.')
   }
   if (options.subagents && options.subagents.length > 0) {
     throw new Error('Subagents are deferred in this browser runtime.')

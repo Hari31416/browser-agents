@@ -61,11 +61,11 @@ class AsyncQueue<T> {
 }
 
 export class RelayChatModel extends BaseChatModel {
-  readonly client: RelayClient
-  readonly config: RelayConnectionConfig
+  readonly client: Pick<RelayClient, 'streamChat'>
+  readonly config: Pick<RelayConnectionConfig, 'providerId' | 'model'> & Partial<RelayConnectionConfig>
   readonly tools: unknown[]
 
-  constructor(client: RelayClient, config: RelayConnectionConfig, tools: unknown[] = []) {
+  constructor(client: Pick<RelayClient, 'streamChat'>, config: Pick<RelayConnectionConfig, 'providerId' | 'model'> & Partial<RelayConnectionConfig>, tools: unknown[] = []) {
     super({})
     this.client = client
     this.config = config
@@ -461,3 +461,5 @@ export class ScriptedChatModel extends BaseChatModel {
     }
   }
 }
+
+export { RelayChatModel as OpenAIChatModel }

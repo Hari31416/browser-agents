@@ -140,118 +140,125 @@ export class RelayClient {
       throw new Error(`Relay error (${response.status}): ${detail}`)
     }
 
-    if (!response.body) {
-      throw new Error('Response body missing from relay stream')
+    return parseChatStream(response, options)
+  }
+}
+
+export async function parseChatStream(
+  response: Response,
+  options?: { signal?: AbortSignal; onDelta?: (content: string) => void },
+): Promise<ParsedChatResult> {
+  if (!response.body) {
+    throw new Error('Response body missing from relay stream')
+  }
+
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buffer = ''
+  let text = ''
+  let doneMarker = false
+  let totalBytes = 0
+  const calls: ToolCallAccumulator[] = []
+
+  const parseEvent = (eventText: string): void => {
+    const dataLines = eventText
+      .split(/\r?\n/)
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trimStart())
+      .join('\n')
+
+    if (!dataLines) return
+    if (dataLines === '[DONE]') {
+      doneMarker = true
+      return
     }
 
-    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
-    let buffer = ''
-    let text = ''
-    let doneMarker = false
-    let totalBytes = 0
-    const calls: ToolCallAccumulator[] = []
-
-    const parseEvent = (eventText: string): void => {
-      const dataLines = eventText
-        .split(/\r?\n/)
-        .filter(line => line.startsWith('data:'))
-        .map(line => line.slice(5).trimStart())
-        .join('\n')
-
-      if (!dataLines) return
-      if (dataLines === '[DONE]') {
-        doneMarker = true
-        return
-      }
-
-      let chunk: {
-        error?: { message?: string }
-        choices?: Array<{
-          delta?: {
-            content?: string
-            tool_calls?: ToolCallDelta[]
-          }
-        }>
-      }
-
-      try {
-        chunk = JSON.parse(dataLines)
-      } catch (err) {
-        throw new SyntaxError(`Invalid SSE JSON chunk: ${String(err)}`)
-      }
-
-      if (chunk.error) {
-        throw new Error(`Upstream stream error: ${chunk.error.message || 'unknown'}`)
-      }
-
-      const delta = chunk.choices?.[0]?.delta
-      if (!delta) return
-
-      if (delta.content) {
-        text += delta.content
-        options?.onDelta?.(delta.content)
-      }
-
-      for (const part of delta.tool_calls ?? []) {
-        if (!Number.isInteger(part.index) || part.index < 0 || part.index > 20) {
-          throw new Error('Invalid tool call index')
+    let chunk: {
+      error?: { message?: string }
+      choices?: Array<{
+        delta?: {
+          content?: string
+          tool_calls?: ToolCallDelta[]
         }
-        const call = (calls[part.index] ??= { id: '', name: '', args: '' })
-        if (part.id) call.id += part.id
-        if (part.function?.name) call.name += part.function.name
-        if (part.function?.arguments) call.args += part.function.arguments
-      }
+      }>
     }
 
     try {
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        totalBytes += value.length
-        if (totalBytes > 2_000_000) {
-          throw new Error('Stream size limit exceeded (2MB)')
-        }
-        buffer += value
-        let match: RegExpExecArray | null
-        while ((match = /\r?\n\r?\n/.exec(buffer)) !== null) {
-          parseEvent(buffer.slice(0, match.index))
-          buffer = buffer.slice(match.index + match[0].length)
-        }
-        if (doneMarker) break
-      }
-
-      if (buffer.trim() && !doneMarker) {
-        parseEvent(buffer)
-      }
-
-      const validCalls = calls.filter((c): c is { id: string; name: string; args: string } => {
-        return Boolean(c && (c.name?.trim() || c.args?.trim() || c.id?.trim()))
-      })
-
-      for (let i = 0; i < validCalls.length; i++) {
-        const call = validCalls[i]
-        if (!call.id) {
-          call.id = `call_${Math.random().toString(36).slice(2)}_${Date.now()}_${i}`
-        }
-        if (!call.name) {
-          throw new Error('Incomplete tool call received from upstream: missing tool name')
-        }
-        if (!call.args || !call.args.trim()) {
-          call.args = '{}'
-        }
-        try {
-          JSON.parse(call.args)
-        } catch (err) {
-          throw new InvalidToolArgumentsError(
-            `Invalid JSON arguments for tool ${call.name}: ${String(err)} (raw args: ${JSON.stringify(call.args)})`,
-          )
-        }
-      }
-
-      return { text, calls: validCalls }
-    } finally {
-      await reader.cancel().catch(() => {})
-      reader.releaseLock()
+      chunk = JSON.parse(dataLines)
+    } catch (err) {
+      throw new SyntaxError(`Invalid SSE JSON chunk: ${String(err)}`)
     }
+
+    if (chunk.error) {
+      throw new Error(`Upstream stream error: ${chunk.error.message || 'unknown'}`)
+    }
+
+    const delta = chunk.choices?.[0]?.delta
+    if (!delta) return
+
+    if (delta.content) {
+      text += delta.content
+      options?.onDelta?.(delta.content)
+    }
+
+    for (const part of delta.tool_calls ?? []) {
+      if (!Number.isInteger(part.index) || part.index < 0 || part.index > 20) {
+        throw new Error('Invalid tool call index')
+      }
+      const call = (calls[part.index] ??= { id: '', name: '', args: '' })
+      if (part.id) call.id += part.id
+      if (part.function?.name) call.name += part.function.name
+      if (part.function?.arguments) call.args += part.function.arguments
+    }
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      totalBytes += value.length
+      if (totalBytes > 2_000_000) {
+        throw new Error('Stream size limit exceeded (2MB)')
+      }
+      buffer += value
+      let match: RegExpExecArray | null
+      while ((match = /\r?\n\r?\n/.exec(buffer)) !== null) {
+        parseEvent(buffer.slice(0, match.index))
+        buffer = buffer.slice(match.index + match[0].length)
+      }
+      if (doneMarker) break
+    }
+
+    if (buffer.trim() && !doneMarker) {
+      parseEvent(buffer)
+    }
+
+    const validCalls = calls.filter((c): c is { id: string; name: string; args: string } => {
+      return Boolean(c && (c.name?.trim() || c.args?.trim() || c.id?.trim()))
+    })
+
+    for (let i = 0; i < validCalls.length; i++) {
+      const call = validCalls[i]
+      if (!call.id) {
+        call.id = `call_${Math.random().toString(36).slice(2)}_${Date.now()}_${i}`
+      }
+      if (!call.name) {
+        throw new Error('Incomplete tool call received from upstream: missing tool name')
+      }
+      if (!call.args || !call.args.trim()) {
+        call.args = '{}'
+      }
+      try {
+        JSON.parse(call.args)
+      } catch (err) {
+        throw new InvalidToolArgumentsError(
+          `Invalid JSON arguments for tool ${call.name}: ${String(err)} (raw args: ${JSON.stringify(call.args)})`,
+        )
+      }
+    }
+
+    return { text, calls: validCalls }
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
   }
 }
