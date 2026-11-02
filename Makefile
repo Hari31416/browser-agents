@@ -27,7 +27,7 @@ FRONTEND_LOG := $(RUN_DIR)/frontend.log
 .PHONY: help setup start stop restart app-start app-stop app-restart \
 	start-relay stop-relay start-frontend stop-frontend \
 	dev relay frontend status health logs logs-relay logs-frontend clean-logs \
-	check test test-backend test-workspace test-python test-python-browser test-runtime typecheck format format-check build clean
+	check test test-backend test-workspace test-python test-python-browser test-runtime test-demo typecheck format format-check build clean
 
 help:
 	@echo "Browser Agents - Available Commands"
@@ -65,6 +65,7 @@ help:
 	@echo "  make test-python      - Run Python protocol and staging integration tests"
 	@echo "  make test-python-browser - Run Python browser Playwright verification tests"
 	@echo "  make test-runtime     - Run runtime package tests"
+	@echo "  make test-demo        - Run chat demo UI and workflow verification suite"
 	@echo "  make typecheck        - Run TypeScript compiler checks"
 	@echo "  make format           - Format backend Python code with black"
 	@echo "  make format-check     - Check backend Python formatting"
@@ -131,11 +132,27 @@ start-relay:
 	fi
 
 stop-relay:
-	@if [ -f $(RELAY_PID) ] && kill -0 $$(cat $(RELAY_PID)) 2>/dev/null; then \
-		kill $$(cat $(RELAY_PID)) && rm -f $(RELAY_PID); \
+	@stopped=0; \
+	if [ -f $(RELAY_PID) ]; then \
+		PID=$$(cat $(RELAY_PID)); \
+		if kill -0 $$PID 2>/dev/null; then \
+			kill $$PID 2>/dev/null || true; \
+			sleep 0.2; \
+			kill -9 $$PID 2>/dev/null || true; \
+			stopped=1; \
+		fi; \
+		rm -f $(RELAY_PID); \
+	fi; \
+	PORT_PIDS=$$(lsof -ti :$(RELAY_PORT) -sTCP:LISTEN 2>/dev/null); \
+	if [ -n "$$PORT_PIDS" ]; then \
+		echo "$$PORT_PIDS" | xargs kill 2>/dev/null || true; \
+		sleep 0.2; \
+		echo "$$PORT_PIDS" | xargs kill -9 2>/dev/null || true; \
+		stopped=1; \
+	fi; \
+	if [ $$stopped -eq 1 ]; then \
 		echo "Model relay stopped"; \
 	else \
-		rm -f $(RELAY_PID); \
 		echo "Model relay not running"; \
 	fi
 
@@ -156,28 +173,46 @@ start-frontend:
 	fi
 
 stop-frontend:
-	@if [ -f $(FRONTEND_PID) ] && kill -0 $$(cat $(FRONTEND_PID)) 2>/dev/null; then \
-		kill $$(cat $(FRONTEND_PID)) && rm -f $(FRONTEND_PID); \
+	@stopped=0; \
+	if [ -f $(FRONTEND_PID) ]; then \
+		PID=$$(cat $(FRONTEND_PID)); \
+		if kill -0 $$PID 2>/dev/null; then \
+			kill $$PID 2>/dev/null || true; \
+			sleep 0.2; \
+			kill -9 $$PID 2>/dev/null || true; \
+			stopped=1; \
+		fi; \
+		rm -f $(FRONTEND_PID); \
+	fi; \
+	PORT_PIDS=$$(lsof -ti :$(FRONTEND_PORT) -sTCP:LISTEN 2>/dev/null); \
+	if [ -n "$$PORT_PIDS" ]; then \
+		echo "$$PORT_PIDS" | xargs kill 2>/dev/null || true; \
+		sleep 0.2; \
+		echo "$$PORT_PIDS" | xargs kill -9 2>/dev/null || true; \
+		stopped=1; \
+	fi; \
+	if [ $$stopped -eq 1 ]; then \
 		echo "Demo frontend stopped"; \
 	else \
-		rm -f $(FRONTEND_PID); \
 		echo "Demo frontend not running"; \
 	fi
 
 status:
 	@printf "%-18s" "Model relay:"
-	@if [ -f $(RELAY_PID) ] && kill -0 $$(cat $(RELAY_PID)) 2>/dev/null; then \
+	@PORT_PID=$$(lsof -ti :$(RELAY_PORT) -sTCP:LISTEN 2>/dev/null); \
+	if [ -n "$$PORT_PID" ]; then \
+		echo "running (PID $$PORT_PID) on http://$(RELAY_HOST):$(RELAY_PORT)"; \
+	elif [ -f $(RELAY_PID) ] && kill -0 $$(cat $(RELAY_PID)) 2>/dev/null; then \
 		echo "running (PID $$(cat $(RELAY_PID))) on http://$(RELAY_HOST):$(RELAY_PORT)"; \
-	elif curl -s http://$(RELAY_HOST):$(RELAY_PORT)/api/health >/dev/null 2>&1; then \
-		echo "running on http://$(RELAY_HOST):$(RELAY_PORT)"; \
 	else \
 		echo "stopped"; \
 	fi
 	@printf "%-18s" "Demo frontend:"
-	@if [ -f $(FRONTEND_PID) ] && kill -0 $$(cat $(FRONTEND_PID)) 2>/dev/null; then \
+	@PORT_PID=$$(lsof -ti :$(FRONTEND_PORT) -sTCP:LISTEN 2>/dev/null); \
+	if [ -n "$$PORT_PID" ]; then \
+		echo "running (PID $$PORT_PID) on http://$(RELAY_HOST):$(FRONTEND_PORT)"; \
+	elif [ -f $(FRONTEND_PID) ] && kill -0 $$(cat $(FRONTEND_PID)) 2>/dev/null; then \
 		echo "running (PID $$(cat $(FRONTEND_PID))) on http://$(RELAY_HOST):$(FRONTEND_PORT)"; \
-	elif curl -s http://$(RELAY_HOST):$(FRONTEND_PORT) >/dev/null 2>&1; then \
-		echo "running on http://$(RELAY_HOST):$(FRONTEND_PORT)"; \
 	else \
 		echo "stopped"; \
 	fi
@@ -229,10 +264,14 @@ test-python-browser:
 test-runtime:
 	$(PNPM) run test:runtime
 
+test-demo:
+	$(PNPM) run test:demo
+
 test:
 	$(PNPM) run test:backend
 	$(PNPM) run test:workspace
 	$(PNPM) run test:python
 	$(PNPM) run test:runtime
+	$(PNPM) run test:demo
 
 check: format-check typecheck test
