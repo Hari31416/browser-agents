@@ -1,211 +1,133 @@
 # Browser agents
 
-Status: Phase 0 feasibility validated on desktop Chrome; MVP implementation pending. Working name: browser-agents.
+Status: MVP implementation verified on desktop Google Chrome.  
+Orchestration, planning, file tools, and sandboxed Python code run inside the browser.  
+Model access is routed through a local lightweight relay.
 
-## What we want to build
+## Overview
 
-An agent runtime that executes inside the browser, with a small application
-that demonstrates useful multi-step work. The browser should own the agent
-loop, tool execution, workspace files, and execution history.
+Browser agents is an in-browser agent runtime and chat application. The browser directly owns the orchestration loop, tool execution, persistent workspace storage, and execution history. Python data analysis and visualization run locally in the browser via Pyodide in a zero-network sandbox. Remote LLMs are reached via an origin-verified local relay that keeps API keys in transient memory away from generated code and browser storage.
 
-The long-term goal is fully local operation, including model inference.
-Remote models and selected server services may be useful along the way.
-We expect local models to improve, but will measure their suitability for
-our tasks rather than depend on a predicted release or capability level.
+For detailed test evidence and benchmarks, refer to the [MVP validation report](docs/mvp-validation.md).
 
-## Why build it
+## Core capabilities
 
-- Use the user's machine for useful tool execution and, eventually, inference.
-- Reduce the amount of private data sent to remote services.
-- Explore what useful agents can do without an installed desktop runtime.
-- Measure the tradeoffs against hosted agent execution.
+- Browser orchestration: Runs the Deep Agents loop in client-side TypeScript, maintaining plan and task state.
+- Automated Python execution: Sandboxed Pyodide execution preloaded with NumPy, pandas, and matplotlib.
+- Zero network leakage: Generated Python and JavaScript cannot access network sockets, HTTP, or browser credentials.
+- Isolated workspace storage: Files stored in Origin Private File System (OPFS) and records in IndexedDB per chat session.
+- Local relay with credential security: OpenAI-compatible endpoints with transient in-memory credential management and origin checks.
+- File staging and previews: Upload files, inspect data, download artifacts, and preview charts directly in the chat UI.
+- Cancellation and limits: Immediate cancellation of long-running or infinite code loops and bounded execution steps.
 
-## Confirmed requirements
+## Repository structure
 
-- Build a reusable browser agent runtime with a small demo application.
-- Use general-purpose chat with files and code execution as the first demo.
-- Run orchestration and supported tool execution in the browser.
-- Include planning and file tools in the first version; defer subagents.
-- Execute Python automatically for analysis and file processing inside the
-  uploaded workspace, with external network access blocked.
-- Provide NumPy, pandas, and matplotlib initially. Add other packages explicitly
-  later; generated Python cannot install arbitrary packages.
-- Preserve chat history and workspace files locally across app restarts.
-  Python variables and live interpreter state reset on reopening.
-- Upload files into browser storage and download generated outputs.
-- Access remote models through a locally run relay using the user's API key.
-- Let users enter an OpenAI-compatible endpoint and API key, discover models,
-  and select an LLM. Do not require a specific provider.
-- Support remote models first and keep local inference pluggable.
-- Keep fully local operation as a future goal, not a first-milestone dependency.
+- `packages/workspace`: File storage (OPFS), record stores (IndexedDB), path validation, and atomic staging.
+- `packages/python`: Sandboxed Pyodide execution within an opaque-origin iframe and Web Worker.
+- `packages/runtime`: Deep Agents browser adapter, relay client, LangChain chat model integration, and event bus.
+- `apps/demo`: Modern React UI built with Vite, Tailwind CSS, Lucide icons, and sanitized markdown rendering.
+- `backend`: FastAPI model relay service handling origin validation, session management, and upstream model streaming.
 
-The runtime must be usable independently of the demo UI. Its public interfaces
-should cover model access, tool registration and execution, workspace storage,
-and execution events. Provider-specific behavior belongs in model adapters.
-The local model interface must support the agent's tool-calling contract;
-local models should not need a separate agent implementation.
+## Getting started
 
-## First demo
+### Prerequisites
 
-The user configures a model endpoint, uploads files, and chats with an agent.
-The agent can create and update a plan, inspect and edit workspace files, and
-run Python automatically. The interface shows streaming responses, plan state,
-tool activity, execution output, errors, and generated files. The user can
-cancel a run and download its outputs.
+- Node.js 22+
+- pnpm 11+
+- Python 3.11+
+- uv (Python package installer)
 
-### Provider setup
+### Installation
 
-1. Enter a display name, OpenAI-compatible base URL, and API key. Endpoints
-   that do not require a key may leave it empty.
-2. Register the configuration with the local relay. The trusted setup UI may
-   handle the key transiently; workspace files, chat records, agent prompts,
-   and generated Python must never receive it.
-3. Test the connection and request the model list through the relay.
-4. Select an LLM. Provide manual model ID entry when model listing is absent.
-5. Start chatting. Expose authentication, connection, and model errors clearly.
+Install dependencies and set up the Python backend virtual environment:
 
-OpenAI-compatible means the required chat, streaming, and tool-call behavior
-matches the supported protocol. A model listing alone does not establish tool
-support. Detect and explain unsupported behavior without silently selecting
-another provider. Exact provider quirks remain a compatibility-testing task.
+```sh
+make setup
+```
 
-### Tools and packages
+### Running development servers
 
-Initial tools should cover planning, listing and reading files, writing and
-editing files, and executing Python. Search tools may be added if the file
-workflow needs them. All file operations stay inside the chat workspace.
-Generated Python runs without per-execution approval, subject to execution
-limits and the enforced network boundary.
+Start both the backend relay (port 8765) and the demo frontend (port 5173) in foreground mode:
 
-The application may download its approved runtime and package assets. Generated
-Python must not make external network requests, including through JavaScript
-interop. Disabling Python's requests library alone is insufficient. Credentials
-and the model relay must be inaccessible from the execution environment.
+```sh
+make dev
+```
 
-### Persistence
+Alternatively, run services in the background:
 
-Persist chat history, visible plan and tool records, and workspace files locally.
-Reopening a chat creates a fresh Python interpreter. Explain that variables do
-not survive. An interrupted run must be marked interrupted rather than silently
-replaying tool calls. Automatic continuation from a checkpoint is deferred.
+```sh
+make start        # Starts relay and frontend
+make status       # Check status and running PIDs
+make health       # Verify relay health check
+make stop         # Stop all services
+```
 
-### Acceptance scenarios
+Visit `http://127.0.0.1:5173` in desktop Chrome or Chromium.
 
-- Configure two different compatible endpoints without changing agent code.
-- Select a model from discovery or enter a model ID manually.
-- Upload a CSV, ask for a multi-step analysis, and see a plan, Python tool
-  output, an explanation, and a downloadable chart or result file.
-- Transform a JSON or text file and download the result.
-- Expose a Python error to the agent and let it retry within a bounded run.
-- Cancel an infinite loop and confirm execution stops and the UI remains usable.
-- Block external network attempts from Python and JavaScript interop.
-- Confirm generated code cannot read credentials or access another chat's files.
-- Reopen the app and recover chat history and files with a fresh interpreter.
-- Confirm subagents and arbitrary package installation are absent initially.
+### Quality and testing
 
-## Defaults and remaining design choices
+Run all linters, compiler checks, and automated test suites:
 
-Use the following working defaults unless testing or user feedback changes them:
+```sh
+make check
+```
 
-- Desktop Chrome and Chromium browsers for the first compatibility test.
-- An ordinary webpage, without an extension or installed tool executor.
-- A run may stop when the page closes; no unattended server execution.
-- Each chat gets an isolated workspace and Python session.
-- Begin with CSV, JSON, and text inputs, plus generated files and image previews.
-- Do not upload whole source files to the model automatically. File tools may
-  return selected content to the model as needed, and Python may return summaries.
-- Keep API keys in relay memory for the session, with no browser persistence.
-  Any future durable credential storage needs an explicit design.
+Or run individual suites:
 
-The agent framework, execution isolation, file synchronization, provider protocol
-coverage, and concrete size/time limits require technical validation. They do
-not need further product decisions before an initial compatibility prototype.
+```sh
+make format-check         # Verify Python formatting with black
+make typecheck            # Check TypeScript packages and demo app
+make test-backend         # Run FastAPI relay pytest suite
+make test-workspace       # Run workspace storage tests
+make test-python          # Run Python protocol and staging tests
+make test-python-browser  # Run Playwright browser isolation tests
+make test-runtime         # Run agent runtime test suite
+make test-demo            # Run chat demo workflow test suite
+```
 
-## Proposed technical direction
+### Production build
 
-- TypeScript for the agent runtime; React, Vite, and pnpm for the demo UI.
-- Run orchestration outside the UI thread in a Web Worker.
-- Use Deep Agents through the tested browser compatibility adapter. Carry its
-  pinned package patches, explicit tool runtime state, and planning middleware
-  into the implementation. Keep the explicit loop as a protocol reference.
-- Keep model access, tool execution, storage, and UI behind separate interfaces.
-- Evaluate OPFS for workspace files and IndexedDB for chat and run records.
-- Use Pyodide with approved assets supplied to an isolated iframe/worker,
-  preserving the no-network boundary validated in Phase 0.
-  Node execution and WebContainers are outside the initial Python scope.
-- Evaluate a WebGPU model backend when local inference enters scope.
-- Use a small local model relay. Accept endpoint configuration from the trusted
-  setup UI and keep active credentials on the relay, outside the browser
-  workspace and generated Python environment.
-- The relay forwards model requests and streams responses. The browser owns
-  the agent loop, file processing, and Python execution.
-- FastAPI, Pydantic, uv, Black, and standard logging are the proposed relay stack.
-- Retain Testbed's provider setup interaction as a reference. See the
-  [reference notes](docs/testbed-reference.md) and
-  [Phase 0 technical findings](docs/technical-findings.md).
+Compile and bundle all TypeScript packages and the demo frontend application:
 
-The [Deep Agents browser fix](docs/deepagents-browser-fix.md) provides the
-selected adapter for the required planning/file workflow. The configured model's malformed nested planning
-arguments must be resolved before claiming a real-model Deep Agents demo.
+```sh
+make build
+```
 
-## Boundaries to resolve
+### Containerized execution
 
-A browser workspace is not unrestricted access to the host filesystem.
-A normal webpage cannot control arbitrary tabs or bypass cross-origin rules.
-Background execution may stop when a tab freezes, closes, or is discarded.
-Browser storage has quotas and possible eviction; exports and recovery matter.
-A Web Worker is not sufficient isolation for untrusted generated code.
-Tool execution must not inherit application credentials or unrestricted access
-to the workspace and network.
+Build and run both the relay and frontend using Docker:
 
-Local execution does not by itself make remote model calls private. Inputs,
-selected excerpts, and tool results included in a request leave the device.
-Fully offline operation also requires locally available model assets and tools,
-and an application that can start without contacting a server.
+```sh
+make docker-build
+make docker-up
+```
 
-## First milestones
+To stop containers:
 
-The [phase-by-phase implementation plan](plans/README.md) breaks these milestones
-into work items, dependencies, and completion checks.
+```sh
+make docker-down
+```
 
-1. Validate browser execution of the candidate agent framework, including
-   planning, file tools, and one streamed tool-call round trip through the relay.
-2. Validate Python isolation with approved packages, workspace file exchange,
-   denied network access, credential isolation, and cancellation.
-3. Build the reusable runtime and chat demo with provider setup, planning,
-   uploaded files, Python execution, output previews, and downloads.
-4. Verify persistence across reopen and the full acceptance scenarios.
-5. Evaluate a local model adapter using the same runtime contracts.
+## Security and isolation architecture
 
-A short technical findings note should explain framework and isolation choices
-before implementation expands. If an isolation approach cannot enforce the
-network requirement, revise it before treating automatic Python as ready.
+The browser runtime enforces strict boundaries:
 
-## Evidence to collect
+- Opaque frame isolation: Python executes inside a Web Worker spawned from an opaque-origin iframe (`sandbox="allow-scripts"`).
+- Strict CSP: `default-src 'none'; script-src 'unsafe-eval' blob:; connect-src blob: data:`. Network requests from Python or JavaScript are blocked.
+- Credential boundary: API keys never enter browser storage or prompts; they exist only transiently in relay process memory.
+- Origin protection: The relay rejects requests from origins other than the configured frontend addresses.
+- File path validation: File tools restrict access strictly within the chat's workspace path root.
 
-- Completion quality on a small set of representative tasks.
-- Cold startup and model download time, where applicable.
-- Time to first response, total task time, and peak memory.
-- Model usage and server work per completed task.
-- Data sent off the device and the reason for each network operation.
-- Behavior during cancellation, reload, offline use, and tab interruption.
-- Browser and device compatibility.
+## Verified compatible models
 
-## Current scope
+Models tested against the Deep Agents function-calling schema:
 
-This repository contains planning documents and executable Phase 0 experiments.
-The explicit browser-worker loop, isolated Python execution, streaming relay,
-real-provider round trip, and recovery probes have passed on the declared target.
-See [experiment commands and evidence](experiments/phase0/README.md).
+- `gpt-oss-120b`: Compatible. Generates valid nested arguments for planning and Python tools.
+- `gpt-oss-20b`: Compatible. Completes full multi-step planning and Python execution loops.
+- `gemma-4-26B-A4B-it`: Emits malformed escape tokens in tool call JSON; requires compliant model selection.
 
-Phase 01 has not started. Work is stopped after Phase 00 and plan updates.
-The MVP chat UI, workspace database, provider setup, reusable TypeScript package,
-and production relay remain to be implemented. Subagents, arbitrary package
-installation, and local inference are deferred.
+## Roadmap and future milestones
 
-Useful references:
-
-- [Deep Agents TypeScript](https://docs.langchain.com/oss/javascript/deepagents/overview)
-- [Pyodide limitations](https://pyodide.org/en/stable/usage/wasm-constraints.html)
-- [WebContainers browser support](https://webcontainers.io/guides/browser-support)
-- [WebLLM](https://webllm.mlc.ai/docs/user/get_started.html)
+- WebGPU local inference: Pluggable browser LLMs without requiring a local relay.
+- Subagents: Multi-agent coordination with hierarchical task execution.
+- Dynamic package wheels: Support for loading additional pure-Python wheels at runtime.
