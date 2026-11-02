@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup": "pnpm install && cd backend && uv venv --python /opt/homebrew/bin/python3 && uv pip install -e \".[dev]\"",
-    "dev": "concurrently -n \"relay,demo\" -c \"blue,green\" \"pnpm dev:relay\" \"pnpm dev:demo\"",
+    "setup": "pnpm install",
+    "dev": "pnpm dev:demo",
     "dev:relay": "cd backend && PYTHONPATH=src .venv/bin/uvicorn relay.main:app --host 127.0.0.1 --port 8765 --reload",
     "dev:demo": "pnpm --filter demo dev",
     "build": "./node_modules/.bin/tsc -b packages/workspace packages/python packages/runtime && (cd apps/demo && ./node_modules/.bin/tsc && ./node_modules/.bin/vite build)",
@@ -21,6 +21,8 @@
     "test:demo": "node --experimental-strip-types apps/demo/test/chat-demo.test.mjs",
     "test:all": "pnpm test:backend && pnpm test:workspace && pnpm test:python && pnpm test:python:browser && pnpm test:runtime && pnpm test:demo",
     "check": "pnpm format:check && pnpm typecheck && pnpm test",
+    "setup:relay": "cd backend && uv venv --python python3 && uv pip install -e \".[dev]\"",
+    "dev:with-relay": "concurrently -n \"relay,demo\" -c \"blue,green\" \"pnpm dev:relay\" \"pnpm dev:demo\"",
     "test:demo:browser": "node apps/demo/test/provider-browser.test.mjs"
   },
   "devDependencies": {

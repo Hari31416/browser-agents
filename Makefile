@@ -34,7 +34,7 @@ help:
 	@echo "==================================="
 	@echo ""
 	@echo "Full Stack (Background):"
-	@echo "  make start            - Start model relay and demo frontend in background"
+	@echo "  make start            - Start demo frontend in background"
 	@echo "  make stop             - Stop all background services"
 	@echo "  make restart          - Restart all background services"
 	@echo ""
@@ -45,7 +45,7 @@ help:
 	@echo "  make stop-frontend    - Stop demo frontend"
 	@echo ""
 	@echo "Interactive Development (Foreground):"
-	@echo "  make dev              - Run model relay and frontend together in foreground"
+	@echo "  make dev              - Run demo frontend in foreground"
 	@echo "  make relay            - Run model relay in foreground"
 	@echo "  make frontend         - Run demo frontend in foreground"
 	@echo ""
@@ -71,7 +71,7 @@ help:
 	@echo "  make format-check     - Check backend Python formatting"
 	@echo ""
 	@echo "Build & Setup:"
-	@echo "  make setup            - Install dependencies and create Python venv"
+	@echo "  make setup            - Install frontend dependencies"
 	@echo "  make build            - Build all TypeScript packages and demo app"
 	@echo "  make clean            - Remove build artifacts and temporary files"
 	@echo "  make docker-build     - Build relay and frontend container images"
@@ -117,7 +117,7 @@ frontend:
 # Background Process Management
 # ---------------------------------------------------------------------------
 
-start: start-relay start-frontend
+start: start-frontend
 
 stop: stop-frontend stop-relay
 

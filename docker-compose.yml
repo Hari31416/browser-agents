@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   relay:
+    profiles: ["relay"]
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -21,6 +22,4 @@ services:
     container_name: browser-agents-demo
     ports:
       - "5173:80"
-    depends_on:
-      - relay
     restart: unless-stopped
