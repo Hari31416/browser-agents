@@ -3,6 +3,7 @@ import type { ProviderPreferences } from '../types'
 const PREFERENCES_KEY = 'browser_agents_preferences_v1'
 
 const DEFAULT_PREFERENCES: ProviderPreferences = {
+  connectionMode: 'direct',
   relayUrl: 'http://127.0.0.1:8765',
   providerName: 'Local Ollama',
   baseUrl: 'http://127.0.0.1:11434/v1',
@@ -25,6 +26,7 @@ export function loadPreferences(): ProviderPreferences {
     const parsed = JSON.parse(raw) as Partial<ProviderPreferences>
     const saveApiKey = Boolean(parsed.saveApiKey)
     return {
+      connectionMode: parsed.connectionMode === 'relay' ? 'relay' : 'direct',
       relayUrl: typeof parsed.relayUrl === 'string' && parsed.relayUrl.trim() ? parsed.relayUrl : DEFAULT_PREFERENCES.relayUrl,
       providerName: typeof parsed.providerName === 'string' ? parsed.providerName : DEFAULT_PREFERENCES.providerName,
       baseUrl: typeof parsed.baseUrl === 'string' ? parsed.baseUrl : DEFAULT_PREFERENCES.baseUrl,
@@ -44,6 +46,7 @@ export function savePreferences(preferences: ProviderPreferences): void {
     if (typeof localStorage === 'undefined') return
     const saveApiKey = Boolean(preferences.saveApiKey)
     const safePayload: ProviderPreferences = {
+      connectionMode: preferences.connectionMode === 'relay' ? 'relay' : 'direct',
       relayUrl: preferences.relayUrl.trim(),
       providerName: preferences.providerName.trim(),
       baseUrl: preferences.baseUrl.trim(),

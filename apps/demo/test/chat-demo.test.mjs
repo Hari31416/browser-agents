@@ -432,6 +432,12 @@ console.log('Test 7: Token persistence preference option...')
   const loadedSaved = loadPreferences()
   assert.equal(loadedSaved.saveApiKey, true)
   assert.equal(loadedSaved.savedApiKey, 'sk-user-saved-token')
+  assert.equal(loadedSaved.connectionMode, 'direct')
+  savePreferences({ ...loadedSaved, connectionMode: 'relay', saveApiKey: false })
+  const removed = loadPreferences()
+  assert.equal(removed.connectionMode, 'relay')
+  assert.equal(removed.savedApiKey, '')
+  assert.ok(![...mockStorage.values()].join('').includes('sk-user-saved-token'))
 
   console.log('Passed Test 7!')
 }

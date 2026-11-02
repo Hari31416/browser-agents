@@ -54,7 +54,7 @@ export function DataFlowModal({ isOpen, onClose }: DataFlowModalProps) {
               <span>2. Isolated Python Execution Sandbox</span>
             </div>
             <p className="text-zinc-400 text-[11px]">
-              Python scripts run inside a WebAssembly environment (Pyodide) hosted in a null-origin sandboxed worker iframe. Network egress (`fetch`, `XMLHttpRequest`, `WebSocket`, sockets) is blocked by a strict Content-Security-Policy. Python code has no access to DOM, cookies, or relay credentials.
+              Python scripts run inside a WebAssembly environment (Pyodide) hosted in a null-origin sandboxed worker iframe. Network egress (`fetch`, `XMLHttpRequest`, `WebSocket`, sockets) is blocked by a strict Content-Security-Policy. Python code has no access to DOM, cookies, or provider credentials.
             </p>
           </div>
 
@@ -62,10 +62,10 @@ export function DataFlowModal({ isOpen, onClose }: DataFlowModalProps) {
           <div className="p-3.5 rounded-lg bg-zinc-950 border border-zinc-800 space-y-1.5">
             <div className="flex items-center gap-2 font-semibold text-zinc-100">
               <Network className="w-4 h-4 text-amber-400" />
-              <span>3. Upstream Model Relay</span>
+              <span>3. Direct connection or optional relay</span>
             </div>
             <p className="text-zinc-400 text-[11px]">
-              The local Python relay acts as a bridge between the browser application and your configured model endpoint (such as local Ollama or OpenAI). It manages authentication headers in memory only and streams tokens back to the browser without executing agent tools or touching file storage.
+              By default, the browser sends model requests directly to your configured endpoint. If the endpoint blocks browser requests, you can choose the local Python relay. Both modes keep orchestration, tool execution, and file storage in the browser.
             </p>
           </div>
 
@@ -73,10 +73,10 @@ export function DataFlowModal({ isOpen, onClose }: DataFlowModalProps) {
           <div className="p-3.5 rounded-lg bg-zinc-950 border border-zinc-800 space-y-1.5">
             <div className="flex items-center gap-2 font-semibold text-zinc-100">
               <Shield className="w-4 h-4 text-indigo-400" />
-              <span>4. Ephemeral Credentials</span>
+              <span>4. Credential storage</span>
             </div>
             <p className="text-zinc-400 text-[11px]">
-              API keys are transferred directly to the local relay during registration and purged from the input form. They are never written to `localStorage`, IndexedDB, or exported chat archives.
+              Keys stay in application memory by default. If you enable Remember API key, the key is stored unencrypted in browser local storage and restored when you return. Uncheck the option and save to remove it. Keys are excluded from model prompts, request inspection, chat exports, and the Python sandbox.
             </p>
           </div>
         </div>

@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   AgentRuntime,
-  RelayChatModel,
+  OpenAIChatModel,
+  DirectClient,
   RelayClient,
   ScriptedChatModel,
   SessionPythonExecutor,
@@ -47,7 +48,8 @@ export function App() {
   // --- Workspace & Storage ---
   const workspaceManagerRef = useRef<WorkspaceManager>(new WorkspaceManager())
   const pythonManagerRef = useRef<PythonSessionManagerImpl>(new PythonSessionManagerImpl())
-  const relayClientRef = useRef<RelayClient>(new RelayClient(preferences.relayUrl))
+  const modelClientRef = useRef<RelayClient | DirectClient | null>(null)
+  const restoredConnectionRef = useRef(false)
   const activeRuntimeRef = useRef<AgentRuntime | null>(null)
 
   const [chats, setChats] = useState<ChatSession[]>([])
@@ -119,49 +121,6 @@ export function App() {
     }
   }, [])
 
-  // --- Auto-reconnect if saved token is present in preferences ---
-  useEffect(() => {
-    let active = true
-    const autoConnect = async () => {
-      if (
-        preferences.isFixtureMode ||
-        !preferences.saveApiKey ||
-        !preferences.savedApiKey ||
-        !preferences.baseUrl
-      ) {
-        return
-      }
-      try {
-        const client = relayClientRef.current
-        const token = await client.createSession()
-        if (!active) return
-        setSessionToken(token)
-        const manualModels = preferences.customModel.trim()
-          ? [preferences.customModel.trim()]
-          : undefined
-        const providerRes = await client.registerProvider({
-          base_url: preferences.baseUrl.trim(),
-          api_key: preferences.savedApiKey.trim() || undefined,
-          models: manualModels,
-        })
-        if (!active) return
-        setCurrentProvider(providerRes)
-      } catch {
-        // Relay might be offline or starting up; ignore silent auto-connect failure
-      }
-    }
-    autoConnect()
-    return () => {
-      active = false
-    }
-  }, [
-    preferences.baseUrl,
-    preferences.customModel,
-    preferences.isFixtureMode,
-    preferences.saveApiKey,
-    preferences.savedApiKey,
-  ])
-
   // --- Load Chat Data when activeChatId changes ---
   const loadChatData = useCallback(async (chatId: string) => {
     const wm = workspaceManagerRef.current
@@ -204,19 +163,67 @@ export function App() {
   }, [activeChatId, loadChatData])
 
   // --- Preferences update handler ---
-  const handleSavePreferences = useCallback((newPrefs: ProviderPreferences) => {
-    setPreferences(newPrefs)
-    savePreferences(newPrefs)
-    relayClientRef.current = new RelayClient(newPrefs.relayUrl)
+  const handleSavePreferences = useCallback(async (
+    newPrefs: ProviderPreferences, apiKey = '', discover = false,
+  ): Promise<ProviderResponse | null> => {
+    // Removing a persisted key must work even when the endpoint is offline.
+    if (!newPrefs.saveApiKey) {
+      const stored = loadPreferences()
+      savePreferences({ ...stored, saveApiKey: false, savedApiKey: '' })
+    }
+    let client: RelayClient | DirectClient | null = null
+    let provider: ProviderResponse | null = null
+    let token: string | null = null
+    if (!newPrefs.isFixtureMode) {
+      if (newPrefs.connectionMode === 'relay') {
+        const relay = new RelayClient(newPrefs.relayUrl)
+        token = await relay.createSession()
+        try {
+          provider = await relay.registerProvider({ base_url: newPrefs.baseUrl,
+            api_key: apiKey || undefined,
+            models: !discover && (newPrefs.selectedModel || newPrefs.customModel)
+              ? [newPrefs.selectedModel || newPrefs.customModel] : undefined })
+        } catch (error) {
+          await relay.deleteSession().catch(() => {})
+          throw error
+        }
+        client = relay
+      } else {
+        const direct = new DirectClient(newPrefs.baseUrl, apiKey)
+        const models = discover ? await direct.listModels() : []
+        provider = { provider_id: 'direct', base_url: direct.baseUrl,
+          has_api_key: Boolean(apiKey), discovered_models: models }
+        client = direct
+      }
+    }
+    const previous = modelClientRef.current
+    modelClientRef.current = client
+    if (previous instanceof RelayClient) void previous.deleteSession().catch(() => {})
+    const nextPrefs = { ...newPrefs, selectedModel: newPrefs.selectedModel || newPrefs.customModel || provider?.discovered_models[0] || '' }
+    setPreferences(nextPrefs)
+    savePreferences(nextPrefs)
+    setSessionToken(token)
+    setCurrentProvider(provider)
+    setRelayError(null)
+    return provider
   }, [])
 
-  // --- Relay Disconnect handler ---
+  useEffect(() => {
+    if (restoredConnectionRef.current) return
+    restoredConnectionRef.current = true
+    const saved = loadPreferences()
+    if (saved.isFixtureMode || !(saved.selectedModel || saved.customModel)) return
+    // Saved keys reconnect in either mode. Keyless direct endpoints need no setup.
+    if (saved.connectionMode === 'relay' && !saved.savedApiKey) return
+    void handleSavePreferences(saved, saved.savedApiKey || '').catch(error => {
+      setRelayError(error instanceof Error ? error.message : String(error))
+    })
+  }, [handleSavePreferences])
+
   const handleDisconnectRelay = useCallback(async () => {
-    try {
-      await relayClientRef.current.deleteSession()
-    } catch {
-      // Ignore network errors
-    }
+    const client = modelClientRef.current
+    modelClientRef.current = null
+    if (client instanceof RelayClient) await client.deleteSession().catch(() => {})
     setSessionToken(null)
     setCurrentProvider(null)
     setRelayError(null)
@@ -397,7 +404,7 @@ export function App() {
     })
 
     // Setup Model and Executor
-    let model: RelayChatModel | ScriptedChatModel
+    let model: OpenAIChatModel | ScriptedChatModel
     let pythonExecutor: SessionPythonExecutor | MockPythonExecutor
 
     if (preferences.isFixtureMode) {
@@ -467,7 +474,7 @@ export function App() {
         },
       ])
     } else {
-      // Real Relay Mode
+      // Live model connection
       const activeModelId = preferences.selectedModel || preferences.customModel
       if (!currentProvider || !activeModelId) {
         setIsProviderModalOpen(true)
@@ -476,14 +483,9 @@ export function App() {
         return
       }
 
-      const client = relayClientRef.current
-      if (sessionToken) {
-        client.setSessionToken(sessionToken)
-      }
-
-      model = new RelayChatModel(client, {
-        relayUrl: preferences.relayUrl,
-        sessionToken: sessionToken || '',
+      const client = modelClientRef.current
+      if (!client) throw new Error('Configure a model connection first.')
+      model = new OpenAIChatModel(client, {
         providerId: currentProvider.provider_id,
         model: activeModelId,
       })
@@ -685,7 +687,7 @@ export function App() {
         onExportChat={handleExportChat}
         storageStatus={storageStatus}
         preferences={preferences}
-        sessionToken={sessionToken}
+        connected={Boolean(currentProvider)}
         onOpenSettings={() => setIsProviderModalOpen(true)}
       />
 
@@ -725,10 +727,10 @@ export function App() {
           isRunning={Boolean(activeRun)}
           onSendMessage={handleSendMessage}
           onCancelRun={handleCancelRun}
-          disabled={!preferences.isFixtureMode && (!currentProvider || !sessionToken)}
+          disabled={!preferences.isFixtureMode && (!currentProvider || !(preferences.selectedModel || preferences.customModel))}
           disabledPlaceholder={
-            !preferences.isFixtureMode && !sessionToken
-              ? 'Connect to local relay and select a model in settings to begin'
+            !preferences.isFixtureMode && !currentProvider
+              ? 'Configure an endpoint and select a model in settings to begin'
               : 'Ask the agent to analyze files, generate charts, or write Python...'
           }
         />
@@ -751,9 +753,7 @@ export function App() {
         preferences={preferences}
         onSavePreferences={handleSavePreferences}
         sessionToken={sessionToken}
-        onSetSessionToken={setSessionToken}
         currentProvider={currentProvider}
-        onSetCurrentProvider={setCurrentProvider}
         onDisconnectRelay={handleDisconnectRelay}
       />
 

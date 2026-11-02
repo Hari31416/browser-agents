@@ -20,7 +20,7 @@ interface SidebarProps {
   onExportChat: (chatId: string) => void
   storageStatus: StorageStatus | null
   preferences: ProviderPreferences
-  sessionToken: string | null
+  connected: boolean
   onOpenSettings: () => void
 }
 
@@ -33,7 +33,7 @@ export function Sidebar({
   onExportChat,
   storageStatus,
   preferences,
-  sessionToken,
+  connected,
   onOpenSettings,
 }: SidebarProps) {
   const handleDelete = useCallback(
@@ -171,7 +171,7 @@ export function Sidebar({
               className={`w-3.5 h-3.5 shrink-0 ${
                 preferences.isFixtureMode
                   ? 'text-sky-400'
-                  : sessionToken
+                  : connected
                     ? 'text-emerald-400'
                     : 'text-zinc-500'
               }`}

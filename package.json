@@ -20,7 +20,8 @@
     "test:runtime": "cd packages/runtime && node test/node-context.test.mjs && node test/agent-runtime.test.mjs && node test/direct-client.test.mjs",
     "test:demo": "node --experimental-strip-types apps/demo/test/chat-demo.test.mjs",
     "test:all": "pnpm test:backend && pnpm test:workspace && pnpm test:python && pnpm test:python:browser && pnpm test:runtime && pnpm test:demo",
-    "check": "pnpm format:check && pnpm typecheck && pnpm test"
+    "check": "pnpm format:check && pnpm typecheck && pnpm test",
+    "test:demo:browser": "node apps/demo/test/provider-browser.test.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

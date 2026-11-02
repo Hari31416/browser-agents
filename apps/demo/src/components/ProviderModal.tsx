@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react'
 import { AlertCircle, CheckCircle2, RefreshCw, X, Shield } from 'lucide-react'
-import { RelayClient } from '@browser-agents/runtime'
 import type { ProviderResponse } from '@browser-agents/runtime'
 import type { ProviderPreferences } from '../types'
 
@@ -8,11 +7,9 @@ interface ProviderModalProps {
   isOpen: boolean
   onClose: () => void
   preferences: ProviderPreferences
-  onSavePreferences: (prefs: ProviderPreferences) => void
+  onSavePreferences: (prefs: ProviderPreferences, apiKey?: string, discover?: boolean) => Promise<ProviderResponse | null>
   sessionToken: string | null
-  onSetSessionToken: (token: string | null) => void
   currentProvider: ProviderResponse | null
-  onSetCurrentProvider: (provider: ProviderResponse | null) => void
   onDisconnectRelay: () => void
 }
 
@@ -22,11 +19,10 @@ export function ProviderModal({
   preferences,
   onSavePreferences,
   sessionToken,
-  onSetSessionToken,
   currentProvider,
-  onSetCurrentProvider,
   onDisconnectRelay,
 }: ProviderModalProps) {
+  const [connectionMode, setConnectionMode] = useState(preferences.connectionMode ?? 'direct')
   const [relayUrl, setRelayUrl] = useState(preferences.relayUrl)
   const [providerName, setProviderName] = useState(preferences.providerName)
   const [baseUrl, setBaseUrl] = useState(preferences.baseUrl)
@@ -45,112 +41,35 @@ export function ProviderModal({
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const handleConnectAndRegister = useCallback(async () => {
+  const applyPreferences = async (discover: boolean) => {
     setTestingConnection(true)
-    setStatusMessage('Connecting to local relay and registering endpoint...')
+    setStatusMessage(discover ? 'Connecting and discovering models...' : null)
     setErrorMessage(null)
-
     try {
-      const client = new RelayClient(relayUrl.trim())
-
-      // 1. Establish session if not active
-      let token = sessionToken
-      if (!token) {
-        token = await client.createSession()
-        onSetSessionToken(token)
-      } else {
-        client.setSessionToken(token)
-      }
-
-      // 2. Register provider endpoint
-      const manualModels = customModel.trim() ? [customModel.trim()] : undefined
-      const response = await client.registerProvider({
-        base_url: baseUrl.trim(),
-        api_key: apiKey.trim() || undefined,
-        models: manualModels,
-      })
-
-      onSetCurrentProvider(response)
-      setDiscoveredModels(response.discovered_models)
-
-      const activeModel =
-        selectedModel && response.discovered_models.includes(selectedModel)
-          ? selectedModel
-          : response.discovered_models[0] || customModel.trim()
-
-      if (activeModel) {
-        setSelectedModel(activeModel)
-      }
-
-      const tokenToPersist = apiKey.trim() || (saveApiKey ? preferences.savedApiKey || '' : '')
-
-      if (!saveApiKey) {
-        setApiKey('')
-      }
-
-      // Save preferences to localStorage
-      onSavePreferences({
+      const response = await onSavePreferences({
+        connectionMode,
         relayUrl: relayUrl.trim(),
         providerName: providerName.trim() || 'Custom Provider',
         baseUrl: baseUrl.trim(),
-        selectedModel: activeModel || '',
+        selectedModel: customModel.trim() || selectedModel.trim(),
         customModel: customModel.trim(),
-        isFixtureMode: false,
+        isFixtureMode,
         saveApiKey,
-        savedApiKey: saveApiKey ? tokenToPersist : '',
-      })
-
-      setStatusMessage(`Provider registered: ${response.provider_id}`)
+        savedApiKey: saveApiKey ? apiKey.trim() : '',
+      }, apiKey.trim(), discover)
+      if (response) {
+        setDiscoveredModels(response.discovered_models)
+        setSelectedModel(customModel.trim() || selectedModel || response.discovered_models[0] || '')
+      }
+      setStatusMessage(discover ? 'Connection successful. Select a model and save.' : 'Preferences saved.')
+      if (!discover) onClose()
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err))
       setStatusMessage(null)
     } finally {
       setTestingConnection(false)
     }
-  }, [
-    relayUrl,
-    sessionToken,
-    baseUrl,
-    apiKey,
-    customModel,
-    selectedModel,
-    providerName,
-    saveApiKey,
-    preferences.savedApiKey,
-    onSetSessionToken,
-    onSetCurrentProvider,
-    onSavePreferences,
-  ])
-
-  const handleSaveOnly = useCallback(() => {
-    const tokenToPersist = apiKey.trim() || (saveApiKey ? preferences.savedApiKey || '' : '')
-    onSavePreferences({
-      relayUrl: relayUrl.trim(),
-      providerName: providerName.trim() || 'Configured Provider',
-      baseUrl: baseUrl.trim(),
-      selectedModel: selectedModel.trim(),
-      customModel: customModel.trim(),
-      isFixtureMode,
-      saveApiKey,
-      savedApiKey: saveApiKey ? tokenToPersist : '',
-    })
-    if (!saveApiKey) {
-      setApiKey('')
-    }
-    onClose()
-  }, [
-    relayUrl,
-    providerName,
-    baseUrl,
-    apiKey,
-    saveApiKey,
-    preferences.savedApiKey,
-    selectedModel,
-    customModel,
-    isFixtureMode,
-    onSavePreferences,
-    onClose,
-  ])
+  }
 
   const handleToggleFixtureMode = useCallback((enabled: boolean) => {
     setIsFixtureMode(enabled)
@@ -175,7 +94,7 @@ export function ProviderModal({
               Model Endpoint Configuration
             </h2>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Configure OpenAI-compatible endpoints routed through your local trusted relay.
+              Connect directly to an OpenAI-compatible endpoint, or use a local relay.
             </p>
           </div>
           <button
@@ -201,8 +120,8 @@ export function ProviderModal({
                   : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-300'
               }`}
             >
-              <div className="font-semibold">Local Relay + LLM</div>
-              <div className="text-[11px] text-zinc-400">Ollama, OpenAI, vLLM via local relay</div>
+              <div className="font-semibold">Live model</div>
+              <div className="text-[11px] text-zinc-400">Ollama, OpenAI-compatible APIs, vLLM</div>
             </button>
             <button
               type="button"
@@ -221,6 +140,19 @@ export function ProviderModal({
 
         {!isFixtureMode ? (
           <>
+            <div className="space-y-2">
+              <label htmlFor="connection-mode" className="block text-xs text-zinc-400">Connection</label>
+              <select id="connection-mode" value={connectionMode}
+                onChange={e => { setConnectionMode(e.target.value as 'direct' | 'relay'); setDiscoveredModels([]); setStatusMessage(null) }}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-2 text-xs">
+                <option value="direct">Direct from browser</option>
+                <option value="relay">Local relay</option>
+              </select>
+              <p className="text-[11px] text-zinc-400">
+                {connectionMode === 'direct' ? 'No backend required. Your endpoint must allow browser requests via CORS.' : 'Run the local relay to connect to endpoints that block browser requests.'}
+              </p>
+            </div>
+            {connectionMode === 'relay' && (<>
             {/* Relay Status */}
             <div className="rounded border border-zinc-800 bg-zinc-950 p-3 flex items-center justify-between text-xs">
               <div className="flex items-center gap-2">
@@ -252,9 +184,11 @@ export function ProviderModal({
               </div>
             </div>
 
+            </>)}
+
             {/* Provider fields */}
             <div className="space-y-3">
-              <div>
+              {connectionMode === 'relay' && <div>
                 <label htmlFor="input-relay-url" className="block text-xs text-zinc-400 mb-1">
                   Relay URL
                 </label>
@@ -267,6 +201,8 @@ export function ProviderModal({
                   className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-200 focus:outline-hidden focus:border-zinc-600 font-mono"
                 />
               </div>
+
+              }
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -290,7 +226,7 @@ export function ProviderModal({
                     id="input-base-url"
                     type="text"
                     value={baseUrl}
-                    onChange={e => setBaseUrl(e.target.value)}
+                    onChange={e => { setBaseUrl(e.target.value); setApiKey(''); setDiscoveredModels([]); setSelectedModel(''); setCustomModel('') }}
                     placeholder="http://127.0.0.1:11434/v1"
                     className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-200 focus:outline-hidden focus:border-zinc-600 font-mono"
                   />
@@ -328,14 +264,15 @@ export function ProviderModal({
                     htmlFor="save-api-key-checkbox"
                     className="text-[11px] text-zinc-300 cursor-pointer select-none"
                   >
-                    Save token in local storage so that it survives even when I come back to it
+                    Remember API key on this browser
                   </label>
                 </div>
+                <p className="mt-1 text-[11px] text-zinc-500">Stored unencrypted in local storage when enabled. Uncheck and save to remove the saved key.</p>
               </div>
 
               <button
                 type="button"
-                onClick={handleConnectAndRegister}
+                onClick={() => void applyPreferences(true)}
                 disabled={testingConnection}
                 className="w-full bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-100 px-4 py-2 rounded text-xs font-medium transition flex items-center justify-center gap-2"
               >
@@ -360,7 +297,7 @@ export function ProviderModal({
                   <select
                     id="select-discovered-model"
                     value={selectedModel}
-                    onChange={e => setSelectedModel(e.target.value)}
+                    onChange={e => { setSelectedModel(e.target.value); setCustomModel('') }}
                     className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-200 focus:outline-hidden focus:border-zinc-600 font-mono"
                   >
                     {discoveredModels.map(m => (
@@ -441,7 +378,8 @@ export function ProviderModal({
           </button>
           <button
             type="button"
-            onClick={handleSaveOnly}
+            onClick={() => void applyPreferences(false)}
+            disabled={testingConnection}
             className="bg-zinc-100 hover:bg-zinc-200 text-zinc-900 px-4 py-1.5 rounded text-xs font-medium transition"
           >
             Save Preferences

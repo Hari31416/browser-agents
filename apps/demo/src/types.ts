@@ -1,6 +1,7 @@
 import type { AgentRunState } from '@browser-agents/runtime'
 
 export interface ProviderPreferences {
+  connectionMode?: 'direct' | 'relay'
   relayUrl: string
   providerName: string
   baseUrl: string
