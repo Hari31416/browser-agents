@@ -51,57 +51,37 @@ export function ConversationView({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, activeRun?.streamingText, toolCalls.length])
 
-  // Build a unified chronological timeline
+  // Build a unified chronological timeline without duplicate messages
   const timelineItems = useMemo<TimelineItem[]>(() => {
     const items: TimelineItem[] = []
 
-    // 1. Process messages
-    for (let mIdx = 0; mIdx < messages.length; mIdx++) {
-      const msg = messages[mIdx]
+    // 1. Process messages and deduplicate
+    const processedMessages: ChatMessageRecord[] = []
+    for (const msg of messages) {
+      const content = (msg.content || '').trim()
+      // Skip if an identical message from the same role already exists
+      const isDuplicate = processedMessages.some(
+        p => p.role === msg.role && (p.content || '').trim() === content,
+      )
+      if (isDuplicate) continue
 
-      // For assistant messages: check if this message was saved with text before and after tool calls
-      if (msg.role === 'assistant' && msg.content && msg.content.includes('\n\n')) {
-        let prevUserTimestamp = ''
-        for (let j = mIdx - 1; j >= 0; j--) {
-          if (messages[j].role === 'user') {
-            prevUserTimestamp = messages[j].createdAt
-            break
-          }
-        }
-
-        const runToolCalls = toolCalls.filter(tc => {
-          const t = tc.startedAt
-          if (prevUserTimestamp && t < prevUserTimestamp) return false
-          return t <= msg.createdAt
-        })
-
-        if (runToolCalls.length > 0) {
-          const parts = msg.content.split(/\n\s*\n/)
-          if (parts.length > 1) {
-            const firstPart = parts[0].trim()
-            const restPart = parts.slice(1).join('\n\n').trim()
-
-            const earliestTcTime = runToolCalls[0].startedAt
-            const introTime = new Date(Date.parse(earliestTcTime) - 1).toISOString()
-
-            items.push({
-              type: 'message',
-              id: `${msg.id}_part1`,
-              timestamp: introTime,
-              message: { ...msg, id: `${msg.id}_part1`, content: firstPart },
-            })
-
-            items.push({
-              type: 'message',
-              id: `${msg.id}_part2`,
-              timestamp: msg.createdAt,
-              message: { ...msg, id: `${msg.id}_part2`, content: restPart },
-            })
-            continue
-          }
-        }
+      // Skip concatenated composite message if individual turn messages are already present
+      if (msg.role === 'assistant' && content.includes('\n\n')) {
+        const parts = content.split(/\n\s*\n/).map(p => p.trim())
+        const allPartsExist =
+          parts.length > 1 &&
+          parts.every(part =>
+            processedMessages.some(
+              p => p.role === 'assistant' && (p.content || '').trim() === part,
+            ),
+          )
+        if (allPartsExist) continue
       }
 
+      processedMessages.push(msg)
+    }
+
+    for (const msg of processedMessages) {
       items.push({
         type: 'message',
         id: msg.id,
@@ -123,7 +103,24 @@ export function ConversationView({
     // 3. Sort chronologically
     items.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 
-    return items
+    // 4. Deduplicate any consecutive identical messages
+    const deduplicated: TimelineItem[] = []
+    for (const item of items) {
+      if (item.type === 'message') {
+        const last = deduplicated[deduplicated.length - 1]
+        if (
+          last &&
+          last.type === 'message' &&
+          last.message.role === item.message.role &&
+          (last.message.content || '').trim() === (item.message.content || '').trim()
+        ) {
+          continue
+        }
+      }
+      deduplicated.push(item)
+    }
+
+    return deduplicated
   }, [messages, toolCalls])
 
   return (

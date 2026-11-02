@@ -520,25 +520,31 @@ export class AgentRuntime {
         }
       }
 
-      // Persist user and assistant messages to recordStore
+      // Persist user and assistant messages to recordStore only if not already recorded by caller
       if (this.recordStore) {
         try {
-          const now = new Date().toISOString()
-          await this.recordStore.addMessage({
-            id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
-            chatId: this.chatId,
-            role: 'user',
-            content: prompt,
-            createdAt: now,
-          })
-          if (accumulatedText) {
+          const existingMsgs = await this.recordStore.getMessages(this.chatId)
+          const alreadyRecorded = existingMsgs.some(
+            m => m.role === 'user' && (m.content || '').trim() === prompt.trim(),
+          )
+          if (!alreadyRecorded) {
+            const now = new Date().toISOString()
             await this.recordStore.addMessage({
               id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
               chatId: this.chatId,
-              role: 'assistant',
-              content: accumulatedText,
+              role: 'user',
+              content: prompt,
               createdAt: now,
             })
+            if (accumulatedText) {
+              await this.recordStore.addMessage({
+                id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
+                chatId: this.chatId,
+                role: 'assistant',
+                content: accumulatedText,
+                createdAt: now,
+              })
+            }
           }
         } catch (err) {
           console.warn('Failed to record chat messages:', err)

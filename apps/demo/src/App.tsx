@@ -173,7 +173,16 @@ export function App() {
         wm.recordStore.listToolCallsForChat(chatId),
         wm.getWorkspace(chatId).listFiles(),
       ])
-      setMessages(msgs)
+      // Deduplicate messages from historical store
+      const cleanMsgs: ChatMessageRecord[] = []
+      for (const m of msgs) {
+        const content = (m.content || '').trim()
+        if (cleanMsgs.some(c => c.role === m.role && (c.content || '').trim() === content)) {
+          continue
+        }
+        cleanMsgs.push(m)
+      }
+      setMessages(cleanMsgs)
       setPlanItems(plan)
       setRuns(rList)
       setToolCalls(tcList)
@@ -615,15 +624,26 @@ export function App() {
       // Add assistant response to messages for remaining text
       const remainingText = currentTurnText.trim() || result.summary.outputText
       if (remainingText) {
-        const assistantMsg: ChatMessageRecord = {
-          id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
-          chatId: activeChatId,
-          role: 'assistant',
-          content: remainingText,
-          createdAt: new Date().toISOString(),
-        }
-        await wm.addMessage(assistantMsg)
-        setMessages(prev => [...prev, assistantMsg])
+        setMessages(prev => {
+          if (
+            prev.some(
+              m =>
+                m.role === 'assistant' &&
+                (m.content || '').trim() === remainingText.trim(),
+            )
+          ) {
+            return prev
+          }
+          const assistantMsg: ChatMessageRecord = {
+            id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
+            chatId: activeChatId,
+            role: 'assistant',
+            content: remainingText,
+            createdAt: new Date().toISOString(),
+          }
+          wm.addMessage(assistantMsg).catch(() => {})
+          return [...prev, assistantMsg]
+        })
       }
 
       // Refresh files and tool calls
