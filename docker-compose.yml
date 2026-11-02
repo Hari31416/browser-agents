@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  relay:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: browser-agents-relay
+    ports:
+      - "8765:8765"
+    environment:
+      - RELAY_HOST=0.0.0.0
+      - RELAY_PORT=8765
+      - ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:80,http://localhost:80
+    restart: unless-stopped
+
+  demo:
+    build:
+      context: .
+      dockerfile: apps/demo/Dockerfile
+    container_name: browser-agents-demo
+    ports:
+      - "5173:80"
+    depends_on:
+      - relay
+    restart: unless-stopped

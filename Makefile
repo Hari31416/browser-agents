@@ -74,6 +74,9 @@ help:
 	@echo "  make setup            - Install dependencies and create Python venv"
 	@echo "  make build            - Build all TypeScript packages and demo app"
 	@echo "  make clean            - Remove build artifacts and temporary files"
+	@echo "  make docker-build     - Build relay and frontend container images"
+	@echo "  make docker-up        - Start containers in background with docker compose"
+	@echo "  make docker-down      - Stop containers with docker compose"
 
 # ---------------------------------------------------------------------------
 # Setup & Build
@@ -87,6 +90,15 @@ build:
 
 clean: clean-logs
 	rm -rf packages/*/dist packages/*/*.tsbuildinfo apps/*/dist apps/*/*.tsbuildinfo
+
+docker-build:
+	docker compose build
+
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
 
 # ---------------------------------------------------------------------------
 # Foreground Development
@@ -218,7 +230,7 @@ status:
 	fi
 
 health:
-	@curl -fsS http://$(RELAY_HOST):$(RELAY_PORT)/api/health || (echo "Relay health check failed" && exit 1)
+	@curl -fsS --noproxy "*" http://$(RELAY_HOST):$(RELAY_PORT)/api/health || (echo "Relay health check failed" && exit 1)
 	@echo "Relay is healthy"
 
 logs:

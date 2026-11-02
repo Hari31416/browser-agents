@@ -8,7 +8,7 @@
     "dev": "concurrently -n \"relay,demo\" -c \"blue,green\" \"pnpm dev:relay\" \"pnpm dev:demo\"",
     "dev:relay": "cd backend && PYTHONPATH=src .venv/bin/uvicorn relay.main:app --host 127.0.0.1 --port 8765 --reload",
     "dev:demo": "pnpm --filter demo dev",
-    "build": "./node_modules/.bin/tsc -b packages/workspace packages/python packages/runtime && pnpm --filter demo build",
+    "build": "./node_modules/.bin/tsc -b packages/workspace packages/python packages/runtime && (cd apps/demo && ./node_modules/.bin/tsc && ./node_modules/.bin/vite build)",
     "format": "cd backend && .venv/bin/black src tests",
     "format:check": "cd backend && .venv/bin/black --check src tests",
     "typecheck": "./node_modules/.bin/tsc -b packages/workspace packages/python packages/runtime apps/demo",
