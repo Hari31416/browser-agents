@@ -78,6 +78,17 @@ export function FilePreviewModal({
     }
   }, [textContent])
 
+  useEffect(() => {
+    if (!file) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [file, onClose])
+
   if (!file) return null
 
   const category = getPreviewCategory(file.mimeType, file.path)
@@ -87,9 +98,13 @@ export function FilePreviewModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="preview-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4"
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 cursor-pointer"
     >
-      <div className="w-full max-w-3xl rounded-lg border border-zinc-800 bg-zinc-900 shadow-2xl p-5 text-zinc-100 flex flex-col max-h-[85vh]">
+      <div
+        onClick={e => e.stopPropagation()}
+        className="w-full max-w-3xl rounded-lg border border-zinc-800 bg-zinc-900 shadow-2xl p-5 text-zinc-100 flex flex-col max-h-[85vh] cursor-default"
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-800 pb-3 shrink-0">
           <div>

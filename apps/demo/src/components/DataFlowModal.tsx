@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { HardDrive, Network, Shield, Terminal, X } from 'lucide-react'
 
 interface DataFlowModalProps {
@@ -6,6 +7,17 @@ interface DataFlowModalProps {
 }
 
 export function DataFlowModal({ isOpen, onClose }: DataFlowModalProps) {
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   return (
@@ -13,9 +25,13 @@ export function DataFlowModal({ isOpen, onClose }: DataFlowModalProps) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="dataflow-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4"
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 cursor-pointer"
     >
-      <div className="w-full max-w-2xl rounded-lg border border-zinc-800 bg-zinc-900 shadow-2xl p-6 text-zinc-100 space-y-4 max-h-[85vh] overflow-y-auto">
+      <div
+        onClick={e => e.stopPropagation()}
+        className="w-full max-w-2xl rounded-lg border border-zinc-800 bg-zinc-900 shadow-2xl p-6 text-zinc-100 space-y-4 max-h-[85vh] overflow-y-auto cursor-default"
+      >
         <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
           <div>
             <h2 id="dataflow-modal-title" className="text-base font-semibold tracking-tight">

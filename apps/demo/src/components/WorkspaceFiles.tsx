@@ -1,16 +1,18 @@
 import { useState, useCallback, useRef } from 'react'
 import {
+  Database,
   Download,
   Eye,
   FileCode,
   FileImage,
+  FileSpreadsheet,
   FileText,
   HardDrive,
+  PanelRightClose,
   Sparkles,
   Trash2,
   Upload,
   User,
-  PanelRightClose,
 } from 'lucide-react'
 import type { ToolCallRecord, WorkspaceFile } from '@browser-agents/workspace'
 import { formatBytes } from '../lib/sanitizer'
@@ -18,10 +20,11 @@ import { formatBytes } from '../lib/sanitizer'
 interface WorkspaceFilesProps {
   files: WorkspaceFile[]
   toolCalls?: ToolCallRecord[]
-  onUploadFiles: (fileList: FileList) => Promise<void>
+  onUploadFiles: (fileList: FileList | File[]) => Promise<void>
   onDownloadFile: (path: string) => void
   onDeleteFile: (path: string) => void
   onPreviewFile: (file: WorkspaceFile) => void
+  onLoadSampleData?: () => void
   isOpen?: boolean
   onClose?: () => void
 }
@@ -33,6 +36,7 @@ export function WorkspaceFiles({
   onDownloadFile,
   onDeleteFile,
   onPreviewFile,
+  onLoadSampleData,
   isOpen = true,
   onClose,
 }: WorkspaceFilesProps) {
@@ -140,15 +144,34 @@ export function WorkspaceFiles({
   const userFiles = files.filter(f => !isModelFile(f))
   const modelFiles = files.filter(f => isModelFile(f))
 
+  const getFileBadge = (ext: string) => {
+    switch (ext) {
+      case 'csv':
+      case 'tsv':
+        return { label: ext.toUpperCase(), color: 'bg-emerald-950/80 text-emerald-400 border-emerald-800/80', icon: FileSpreadsheet }
+      case 'py':
+        return { label: 'PY', color: 'bg-sky-950/80 text-sky-400 border-sky-800/80', icon: FileCode }
+      case 'json':
+        return { label: 'JSON', color: 'bg-amber-950/80 text-amber-400 border-amber-800/80', icon: FileCode }
+      case 'png':
+      case 'jpg':
+      case 'jpeg':
+      case 'svg':
+        return { label: ext.toUpperCase(), color: 'bg-purple-950/80 text-purple-400 border-purple-800/80', icon: FileImage }
+      default:
+        return { label: ext ? ext.toUpperCase() : 'FILE', color: 'bg-zinc-850 text-zinc-400 border-zinc-700', icon: FileText }
+    }
+  }
+
   const renderFileCard = (file: WorkspaceFile) => {
     const ext = file.path.split('.').pop()?.toLowerCase() ?? ''
-    const isCode = ['py', 'js', 'ts', 'json', 'html', 'css'].includes(ext)
-    const isImage = ['png', 'jpg', 'jpeg', 'svg', 'gif', 'webp'].includes(ext)
+    const badge = getFileBadge(ext)
+    const BadgeIcon = badge.icon
 
     return (
       <div
         key={file.path}
-        className="group flex items-center justify-between p-2 rounded bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 text-xs transition"
+        className="group flex items-center justify-between p-2.5 rounded-xl bg-zinc-900/60 hover:bg-zinc-850/90 border border-zinc-800/80 text-xs transition shadow-2xs"
       >
         <div
           role="button"
@@ -157,30 +180,26 @@ export function WorkspaceFiles({
           onKeyDown={e => {
             if (e.key === 'Enter' || e.key === ' ') onPreviewFile(file)
           }}
-          className="flex items-center gap-2 overflow-hidden mr-2 cursor-pointer flex-1 min-w-0"
+          className="flex items-center gap-2.5 overflow-hidden mr-2 cursor-pointer flex-1 min-w-0"
         >
-          {isImage ? (
-            <FileImage className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-          ) : isCode ? (
-            <FileCode className="w-3.5 h-3.5 shrink-0 text-sky-400" />
-          ) : (
-            <FileText className="w-3.5 h-3.5 shrink-0 text-zinc-400" />
-          )}
+          <div className={`p-1.5 rounded-lg border shrink-0 ${badge.color}`}>
+            <BadgeIcon className="w-3.5 h-3.5" />
+          </div>
           <div className="truncate">
-            <div className="truncate font-mono text-zinc-200">{file.path}</div>
+            <div className="truncate font-mono text-zinc-200 text-xs">{file.path}</div>
             <div className="text-[10px] text-zinc-500 font-mono">
               {formatBytes(file.size)}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
           <button
             type="button"
             onClick={() => onPreviewFile(file)}
             aria-label={`Preview ${file.path}`}
             title="Preview file"
-            className="p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+            className="p-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
           >
             <Eye className="w-3.5 h-3.5" />
           </button>
@@ -189,7 +208,7 @@ export function WorkspaceFiles({
             onClick={() => onDownloadFile(file.path)}
             aria-label={`Download ${file.path}`}
             title="Download file"
-            className="p-1 rounded text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800"
+            className="p-1 rounded-md text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800 transition"
           >
             <Download className="w-3.5 h-3.5" />
           </button>
@@ -202,7 +221,7 @@ export function WorkspaceFiles({
             }}
             aria-label={`Delete ${file.path}`}
             title="Delete file"
-            className="p-1 rounded text-zinc-400 hover:text-red-400 hover:bg-zinc-800"
+            className="p-1 rounded-md text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 transition"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -220,10 +239,13 @@ export function WorkspaceFiles({
       aria-label="Workspace files"
       className="w-72 bg-zinc-950 border-l border-zinc-800/80 flex flex-col h-full shrink-0 select-none text-zinc-300"
     >
-      <div className="p-3 border-b border-zinc-800/80 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-          <HardDrive className="w-3.5 h-3.5 text-zinc-400" />
-          <span>Workspace Files ({files.length})</span>
+      <div className="p-3.5 border-b border-zinc-800/80 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-300">
+          <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Workspace Files</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono">
+            {files.length}
+          </span>
         </div>
         {onClose && (
           <button
@@ -246,26 +268,48 @@ export function WorkspaceFiles({
       </div>
 
       {/* Drag & drop target zone */}
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className={`m-2.5 p-3 rounded-lg border border-dashed text-center text-xs transition cursor-pointer ${
-          isDragging
-            ? 'border-sky-500 bg-sky-950/20 text-sky-300'
-            : 'border-zinc-800 hover:border-zinc-700 bg-zinc-900/40 text-zinc-500'
-        }`}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <Upload className="w-4 h-4 mx-auto mb-1 text-zinc-500" />
-        <span className="text-[11px]">Drop files here to upload to browser storage</span>
+      <div className="p-2.5 space-y-2 border-b border-zinc-800/60">
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`p-4 rounded-xl border border-dashed text-center text-xs transition cursor-pointer ${
+            isDragging
+              ? 'border-emerald-500 bg-emerald-950/20 text-emerald-300 shadow-sm'
+              : 'border-zinc-800 hover:border-zinc-700 bg-zinc-900/40 hover:bg-zinc-900/70 text-zinc-400'
+          }`}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Upload className="w-4 h-4 mx-auto mb-1.5 text-zinc-400" />
+          <div className="font-medium text-[11px] text-zinc-200">Drop files or click to upload</div>
+          <div className="text-[10px] text-zinc-500 mt-0.5">CSV, JSON, Python, or data files</div>
+        </div>
+
+        {onLoadSampleData && (
+          <button
+            type="button"
+            onClick={onLoadSampleData}
+            aria-label="Load sample dataset"
+            title="Load sample sales dataset for testing"
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white text-[11px] font-medium transition cursor-pointer shadow-2xs"
+          >
+            <Database className="w-3 h-3 text-emerald-400" />
+            <span>Load Sample Dataset (CSV)</span>
+          </button>
+        )}
       </div>
 
       {/* File lists separated by User Uploaded vs Model Generated */}
-      <div className="flex-1 overflow-y-auto px-2 py-1 space-y-4">
+      <div className="flex-1 overflow-y-auto p-2.5 space-y-4">
         {files.length === 0 ? (
-          <div className="p-4 text-center text-xs text-zinc-500 italic">
-            No files in this workspace. Upload CSV, text, or data files for the agent to use.
+          <div className="py-8 px-4 text-center text-xs text-zinc-500 space-y-2">
+            <div className="p-2.5 w-9 h-9 rounded-xl bg-zinc-900 border border-zinc-800 mx-auto flex items-center justify-center text-zinc-400">
+              <FileSpreadsheet className="w-4 h-4" />
+            </div>
+            <div className="font-medium text-zinc-300">No files yet</div>
+            <p className="text-[11px] text-zinc-500 leading-relaxed">
+              Upload CSV or dataset files, or click &apos;Load Sample Dataset&apos; to explore Python analysis capabilities.
+            </p>
           </div>
         ) : (
           <>

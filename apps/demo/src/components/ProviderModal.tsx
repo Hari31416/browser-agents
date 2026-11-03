@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { AlertCircle, CheckCircle2, RefreshCw, X, Shield } from 'lucide-react'
 import type { ProviderResponse } from '@browser-agents/runtime'
 import type { ProviderPreferences } from '../types'
@@ -78,6 +78,17 @@ export function ProviderModal({
     }
   }, [])
 
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   return (
@@ -85,9 +96,13 @@ export function ProviderModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="provider-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4"
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 cursor-pointer"
     >
-      <div className="w-full max-w-xl rounded-lg border border-zinc-800 bg-zinc-900 shadow-2xl p-6 text-zinc-100 space-y-5 max-h-[90vh] overflow-y-auto">
+      <div
+        onClick={e => e.stopPropagation()}
+        className="w-full max-w-xl rounded-lg border border-zinc-800 bg-zinc-900 shadow-2xl p-6 text-zinc-100 space-y-5 max-h-[90vh] overflow-y-auto cursor-default"
+      >
         <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
           <div>
             <h2 id="provider-modal-title" className="text-lg font-semibold tracking-tight">

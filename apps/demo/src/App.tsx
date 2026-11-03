@@ -322,20 +322,48 @@ export function App() {
   }, [])
 
   // --- File Handlers ---
-  const handleUploadFiles = useCallback(async (fileList: FileList) => {
+  const handleUploadFiles = useCallback(async (fileList: FileList | File[]) => {
     const chatId = activeChatId
     if (!chatId) return
     const wm = workspaceManagerRef.current
     const ws = wm.getWorkspace(chatId)
 
-    for (let i = 0; i < fileList.length; i++) {
-      const file = fileList[i]
+    const list = Array.from(fileList)
+    for (const file of list) {
       const arrayBuffer = await file.arrayBuffer()
       const bytes = new Uint8Array(arrayBuffer)
       const path = file.name.startsWith('/') ? file.name : `/${file.name}`
       await ws.writeFile(path, bytes, { mimeType: file.type || 'application/octet-stream', source: 'user' })
     }
 
+    const updatedFiles = await ws.listFiles()
+    touchChatData(chatId)
+    if (selectedChatIdRef.current === chatId) {
+      setFiles(updatedFiles)
+    }
+  }, [activeChatId, touchChatData])
+
+  const handleLoadSampleDataset = useCallback(async () => {
+    const chatId = activeChatId
+    if (!chatId) return
+    const wm = workspaceManagerRef.current
+    const ws = wm.getWorkspace(chatId)
+    const csvContent = `date,product,category,units_sold,unit_price,revenue
+2026-01-05,Laptop Pro 15,Electronics,12,1299.99,15599.88
+2026-01-08,Wireless Mouse,Electronics,45,29.99,1349.55
+2026-01-12,USB-C Hub,Accessories,30,49.99,1499.70
+2026-01-15,Mechanical Keyboard,Electronics,18,89.99,1619.82
+2026-01-19,Ergonomic Chair,Furniture,8,349.99,2799.92
+2026-01-22,Standing Desk,Furniture,5,599.99,2999.95
+2026-01-26,Noise-Canceling Headphones,Electronics,22,199.99,4399.78
+2026-01-30,Monitor 27-inch 4K,Electronics,14,399.99,5599.86
+2026-02-03,Desk Mat,Accessories,55,19.99,1099.45
+2026-02-07,Webcam 1080p,Accessories,25,69.99,1749.75`
+    const encoder = new TextEncoder()
+    await ws.writeFile('/sales_data.csv', encoder.encode(csvContent), {
+      mimeType: 'text/csv',
+      source: 'user',
+    })
     const updatedFiles = await ws.listFiles()
     touchChatData(chatId)
     if (selectedChatIdRef.current === chatId) {
@@ -803,7 +831,7 @@ export function App() {
       )}
 
       {/* Main Conversation Column */}
-      <main className="relative flex-1 flex flex-col min-w-0 h-full bg-zinc-900/30">
+      <main className="relative flex-1 flex flex-col min-w-0 h-full bg-zinc-900/40">
         {!isSidebarOpen && (
           <button
             type="button"
@@ -821,14 +849,15 @@ export function App() {
             onClick={() => setIsFilesOpen(true)}
             aria-label="Open workspace files"
             title="Open workspace files"
-            className="absolute top-3 right-3 z-20 p-1.5 rounded-lg bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-100 transition shadow-md backdrop-blur-xs flex items-center gap-1.5 text-xs"
+            className="absolute top-3 right-3 z-20 p-1.5 rounded-lg bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-100 transition shadow-md backdrop-blur-xs flex items-center gap-1.5 text-xs font-mono"
           >
             <PanelRightOpen className="w-4 h-4" />
-            <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-zinc-950 border border-zinc-800 text-zinc-400">
+            <span className="text-[10px] px-1 py-0.2 rounded bg-zinc-950 border border-zinc-800 text-emerald-400">
               {files.length}
             </span>
           </button>
         )}
+
         {/* Error Banner */}
         <ErrorBanner
           message={relayError}
@@ -845,6 +874,7 @@ export function App() {
           runs={runs}
           activeRun={activeRun?.chatId === activeChatId ? activeRun : null}
           onDownloadFile={handleDownloadFile}
+          onSelectPrompt={handleSendMessage}
         />
 
         {/* Composer with Integrated Model Selector & Controls */}
@@ -875,6 +905,7 @@ export function App() {
         onDownloadFile={handleDownloadFile}
         onDeleteFile={handleDeleteFile}
         onPreviewFile={setPreviewFile}
+        onLoadSampleData={handleLoadSampleDataset}
         isOpen={isFilesOpen}
         onClose={() => setIsFilesOpen(false)}
       />

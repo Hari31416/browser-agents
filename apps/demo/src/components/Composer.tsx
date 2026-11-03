@@ -1,7 +1,8 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import {
+  ArrowUp,
+  Eye,
   Info,
-  Play,
   RefreshCw,
   Settings,
   Square,
@@ -33,10 +34,21 @@ export function Composer({
   pythonState,
   onResetPython,
   onOpenSettings,
+  onOpenInspector,
   onOpenDataFlow,
 }: ComposerProps) {
   const [prompt, setPrompt] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = `${Math.min(
+        Math.max(textareaRef.current.scrollHeight, 40),
+        160,
+      )}px`
+    }
+  }, [prompt])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -45,6 +57,7 @@ export function Composer({
         if (prompt.trim() && !isRunning && !disabled) {
           const text = prompt.trim()
           setPrompt('')
+          if (textareaRef.current) textareaRef.current.style.height = 'auto'
           onSendMessage(text)
         }
       }
@@ -60,6 +73,7 @@ export function Composer({
       } else if (prompt.trim() && !disabled) {
         const text = prompt.trim()
         setPrompt('')
+        if (textareaRef.current) textareaRef.current.style.height = 'auto'
         onSendMessage(text)
       }
     },
@@ -119,15 +133,17 @@ export function Composer({
     ? 'Fixture Mode'
     : preferences.selectedModel || preferences.customModel || 'Select Model'
 
+  const canSubmit = Boolean(prompt.trim()) && !disabled && !isRunning
+
   return (
     <form
       onSubmit={handleSubmit}
-      className="p-3 border-t border-zinc-800 bg-zinc-950/90 shrink-0"
+      className="p-3 sm:p-4 pt-1 bg-gradient-to-t from-zinc-950 via-zinc-950/80 to-transparent shrink-0"
     >
-      <div className="max-w-4xl mx-auto rounded-lg border border-zinc-800 bg-zinc-900 p-2.5 focus-within:border-zinc-700 transition space-y-2">
+      <div className="max-w-3xl mx-auto rounded-2xl border border-zinc-800 bg-zinc-900/95 shadow-xl backdrop-blur-md focus-within:border-zinc-700 focus-within:ring-1 focus-within:ring-emerald-500/20 transition-all p-3 space-y-2">
         <textarea
           ref={textareaRef}
-          rows={2}
+          rows={1}
           value={prompt}
           onChange={e => setPrompt(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -138,7 +154,7 @@ export function Composer({
               : 'Ask the agent to analyze files, generate charts, or write Python...'
           }
           aria-label="Agent prompt input"
-          className="w-full bg-transparent text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-hidden resize-none leading-relaxed p-1"
+          className="w-full bg-transparent text-xs sm:text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-hidden resize-none leading-relaxed p-1 min-h-[38px] max-h-36 overflow-y-auto"
         />
 
         {/* Composer Bottom Toolbar: Model selector, Python state, Inspect, Run */}
@@ -151,7 +167,7 @@ export function Composer({
               onClick={onOpenSettings}
               aria-label="Select model or configure endpoint"
               title="Click to configure model endpoint and settings"
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-950/80 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-xs text-zinc-300 hover:text-zinc-100 transition cursor-pointer max-w-[220px] sm:max-w-xs"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-950/80 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-xs text-zinc-300 hover:text-zinc-100 transition cursor-pointer max-w-[200px] sm:max-w-xs shadow-2xs"
             >
               <span
                 className={`w-1.5 h-1.5 rounded-full shrink-0 ${
@@ -169,7 +185,7 @@ export function Composer({
             {/* Python Status Pill & Reset */}
             <div
               title={badge.tooltip}
-              className={`hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border text-[11px] font-mono ${badge.color}`}
+              className={`hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-mono ${badge.color}`}
             >
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.dot}`} />
               <Terminal className="w-3 h-3 shrink-0 opacity-80" />
@@ -185,39 +201,55 @@ export function Composer({
               </button>
             </div>
 
+            {/* Inspect Request button */}
+            {onOpenInspector && (
+              <button
+                type="button"
+                onClick={onOpenInspector}
+                aria-label="Inspect assembled model request"
+                title="Inspect assembled model request"
+                className="p-1 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition"
+              >
+                <Eye className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             {/* Data flow info button */}
             <button
               type="button"
               onClick={onOpenDataFlow}
               aria-label="View data privacy and local storage details"
               title="Data flow and isolation boundary information"
-              className="p-1 rounded text-zinc-500 hover:text-zinc-300 transition"
+              className="p-1 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition"
             >
               <Info className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {/* Right: Run / Stop Button */}
+          {/* Right: Modern Send / Stop Button */}
           <div className="flex items-center gap-1.5 shrink-0">
             {isRunning ? (
               <button
                 type="button"
                 onClick={onCancelRun}
                 aria-label="Cancel active agent execution"
-                className="flex items-center gap-1 px-3 py-1.5 rounded bg-amber-700 hover:bg-amber-600 text-white text-xs font-medium transition shadow-xs"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-300 text-xs font-medium transition shadow-xs cursor-pointer"
               >
-                <Square className="w-3.5 h-3.5" />
+                <Square className="w-3 h-3 fill-current" />
                 <span>Stop</span>
               </button>
             ) : (
               <button
                 type="submit"
-                disabled={!prompt.trim() || disabled}
+                disabled={!canSubmit}
                 aria-label="Send message to agent"
-                className="flex items-center gap-1 px-3 py-1.5 rounded bg-zinc-100 hover:bg-zinc-200 disabled:opacity-40 text-zinc-900 text-xs font-medium transition shadow-xs"
+                className={`flex items-center justify-center w-8 h-8 rounded-xl transition shadow-xs ${
+                  canSubmit
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 cursor-pointer shadow-emerald-500/20'
+                    : 'bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-60'
+                }`}
               >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Run</span>
+                <ArrowUp className="w-4 h-4 stroke-[2.5]" />
               </button>
             )}
           </div>

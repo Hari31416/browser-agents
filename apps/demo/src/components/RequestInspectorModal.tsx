@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Check, Copy, ShieldCheck, X } from 'lucide-react'
 import type { AssembledRequestInspection } from '../types'
 
@@ -29,6 +29,17 @@ export function RequestInspectorModal({
     }
   }, [jsonString])
 
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   return (
@@ -36,9 +47,13 @@ export function RequestInspectorModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="inspector-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4"
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 cursor-pointer"
     >
-      <div className="w-full max-w-3xl rounded-lg border border-zinc-800 bg-zinc-900 shadow-2xl p-6 text-zinc-100 flex flex-col max-h-[85vh]">
+      <div
+        onClick={e => e.stopPropagation()}
+        className="w-full max-w-3xl rounded-lg border border-zinc-800 bg-zinc-900 shadow-2xl p-6 text-zinc-100 flex flex-col max-h-[85vh] cursor-default"
+      >
         <div className="flex items-center justify-between border-b border-zinc-800 pb-3 shrink-0">
           <div>
             <h2 id="inspector-modal-title" className="text-sm font-semibold tracking-tight">
