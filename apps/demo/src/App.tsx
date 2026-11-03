@@ -51,6 +51,13 @@ export function App() {
   const modelClientRef = useRef<RelayClient | DirectClient | null>(null)
   const restoredConnectionRef = useRef(false)
   const activeRuntimeRef = useRef<AgentRuntime | null>(null)
+  const selectedChatIdRef = useRef<string | null>(null)
+  const chatLoadRequestRef = useRef(0)
+  const chatDataRevisionRef = useRef(new Map<string, number>())
+  const activeRunIdRef = useRef<string | null>(null)
+  const activeRunChatIdRef = useRef<string | null>(null)
+  const activeRunAbortRef = useRef<AbortController | null>(null)
+  const runSettlementsRef = useRef(new Map<string, { promise: Promise<void>; resolve: () => void }>())
 
   const [chats, setChats] = useState<ChatSession[]>([])
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
@@ -76,6 +83,30 @@ export function App() {
 
   // --- Active Run Info ---
   const [activeRun, setActiveRun] = useState<ActiveRunInfo | null>(null)
+
+  const touchChatData = useCallback((chatId: string) => {
+    chatDataRevisionRef.current.set(chatId, (chatDataRevisionRef.current.get(chatId) ?? 0) + 1)
+  }, [])
+
+  const resetChatView = useCallback(() => {
+    setMessages([])
+    setPlanItems([])
+    setToolCalls([])
+    setRuns([])
+    setFiles([])
+    setPythonState({ status: 'idle', packages: ['numpy', 'pandas', 'matplotlib'] })
+  }, [])
+
+  const selectChat = useCallback((chatId: string | null) => {
+    if (selectedChatIdRef.current === chatId) return
+    selectedChatIdRef.current = chatId
+    chatLoadRequestRef.current += 1
+    resetChatView()
+    setPreviewFile(null)
+    setInspectionData(null)
+    setRelayError(null)
+    setActiveChatId(chatId)
+  }, [resetChatView])
 
   // --- Modals ---
   const [isProviderModalOpen, setIsProviderModalOpen] = useState(false)
@@ -107,6 +138,7 @@ export function App() {
         if (mounted) {
           setChats(chatList)
           const chosenId = chatList[0].id
+          selectedChatIdRef.current = chosenId
           setActiveChatId(chosenId)
         }
       } catch (err) {
@@ -122,16 +154,23 @@ export function App() {
   }, [])
 
   // --- Load Chat Data when activeChatId changes ---
-  const loadChatData = useCallback(async (chatId: string) => {
+  const loadChatData = useCallback(async (chatId: string, requestId: number) => {
     const wm = workspaceManagerRef.current
     try {
-      const [msgs, plan, rList, tcList, wsFiles] = await Promise.all([
-        wm.getMessages(chatId),
-        wm.getPlan(chatId),
-        wm.listRuns(chatId),
-        wm.recordStore.listToolCallsForChat(chatId),
-        wm.getWorkspace(chatId).listFiles(),
-      ])
+      let loaded
+      while (true) {
+        const revision = chatDataRevisionRef.current.get(chatId) ?? 0
+        loaded = await Promise.all([
+          wm.getMessages(chatId),
+          wm.getPlan(chatId),
+          wm.listRuns(chatId),
+          wm.recordStore.listToolCallsForChat(chatId),
+          wm.getWorkspace(chatId).listFiles(),
+        ])
+        if (selectedChatIdRef.current !== chatId || chatLoadRequestRef.current !== requestId) return
+        if ((chatDataRevisionRef.current.get(chatId) ?? 0) === revision) break
+      }
+      const [msgs, plan, rList, tcList, wsFiles] = loaded
       // Deduplicate messages from historical store
       const cleanMsgs: ChatMessageRecord[] = []
       for (const m of msgs) {
@@ -158,7 +197,8 @@ export function App() {
 
   useEffect(() => {
     if (activeChatId) {
-      loadChatData(activeChatId)
+      const requestId = ++chatLoadRequestRef.current
+      void loadChatData(activeChatId, requestId)
     }
   }, [activeChatId, loadChatData])
 
@@ -235,25 +275,32 @@ export function App() {
     const newChat = await wm.createChat(`Chat ${chats.length + 1}`)
     const updatedChats = await wm.listChats()
     setChats(updatedChats)
-    setActiveChatId(newChat.id)
-  }, [chats.length])
+    selectChat(newChat.id)
+  }, [chats.length, selectChat])
 
   const handleDeleteChat = useCallback(async (chatId: string) => {
     const wm = workspaceManagerRef.current
+    if (activeRunChatIdRef.current === chatId && activeRunIdRef.current) {
+      const runId = activeRunIdRef.current
+      activeRunAbortRef.current?.abort()
+      activeRuntimeRef.current?.cancel('Chat deleted during an active run')
+      const pending = runSettlementsRef.current.get(runId)
+      if (pending) await pending.promise
+    }
     await wm.deleteChat(chatId)
     await pythonManagerRef.current.disposeSession(chatId)
     const updatedChats = await wm.listChats()
     setChats(updatedChats)
-    if (activeChatId === chatId) {
+    if (selectedChatIdRef.current === chatId) {
       if (updatedChats.length > 0) {
-        setActiveChatId(updatedChats[0].id)
+        selectChat(updatedChats[0].id)
       } else {
         const fallbackChat = await wm.createChat('New Chat')
         setChats([fallbackChat])
-        setActiveChatId(fallbackChat.id)
+        selectChat(fallbackChat.id)
       }
     }
-  }, [activeChatId])
+  }, [selectChat])
 
   const handleUpdateTitle = useCallback(async (newTitle: string) => {
     if (!activeChatId) return
@@ -282,9 +329,10 @@ export function App() {
 
   // --- File Handlers ---
   const handleUploadFiles = useCallback(async (fileList: FileList) => {
-    if (!activeChatId) return
+    const chatId = activeChatId
+    if (!chatId) return
     const wm = workspaceManagerRef.current
-    const ws = wm.getWorkspace(activeChatId)
+    const ws = wm.getWorkspace(chatId)
 
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i]
@@ -295,8 +343,11 @@ export function App() {
     }
 
     const updatedFiles = await ws.listFiles()
-    setFiles(updatedFiles)
-  }, [activeChatId])
+    touchChatData(chatId)
+    if (selectedChatIdRef.current === chatId) {
+      setFiles(updatedFiles)
+    }
+  }, [activeChatId, touchChatData])
 
   const handleDownloadFile = useCallback(async (path: string) => {
     if (!activeChatId) return
@@ -319,13 +370,17 @@ export function App() {
   }, [activeChatId])
 
   const handleDeleteFile = useCallback(async (path: string) => {
-    if (!activeChatId) return
+    const chatId = activeChatId
+    if (!chatId) return
     const wm = workspaceManagerRef.current
-    const ws = wm.getWorkspace(activeChatId)
+    const ws = wm.getWorkspace(chatId)
     await ws.deleteFile(path)
     const updatedFiles = await ws.listFiles()
-    setFiles(updatedFiles)
-  }, [activeChatId])
+    touchChatData(chatId)
+    if (selectedChatIdRef.current === chatId) {
+      setFiles(updatedFiles)
+    }
+  }, [activeChatId, touchChatData])
 
   const handlePreviewReadFileBytes = useCallback(async (path: string): Promise<Uint8Array | null> => {
     if (!activeChatId) return null
@@ -341,68 +396,68 @@ export function App() {
 
   // --- Python Reset Handler ---
   const handleResetPython = useCallback(async () => {
-    if (!activeChatId) return
+    const chatId = activeChatId
+    if (!chatId) return
     try {
-      await pythonManagerRef.current.resetSession(activeChatId)
-      setPythonState({
-        status: 'ready',
-        packages: ['numpy', 'pandas', 'matplotlib'],
-      })
+      await pythonManagerRef.current.resetSession(chatId)
+      if (selectedChatIdRef.current === chatId) {
+        setPythonState({ status: 'ready', packages: ['numpy', 'pandas', 'matplotlib'] })
+      }
     } catch (err) {
-      setPythonState({
-        status: 'error',
-        packages: ['numpy', 'pandas', 'matplotlib'],
-        error: err instanceof Error ? err.message : String(err),
-      })
+      if (selectedChatIdRef.current === chatId) {
+        setPythonState({
+          status: 'error',
+          packages: ['numpy', 'pandas', 'matplotlib'],
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
     }
   }, [activeChatId])
 
   // --- Cancel Run Handler ---
   const handleCancelRun = useCallback(() => {
+    activeRunAbortRef.current?.abort()
     if (activeRuntimeRef.current) {
       activeRuntimeRef.current.cancel('Cancelled by user')
     }
-    setActiveRun(null)
   }, [])
 
   // --- Send Message & Agent Execution ---
   const handleSendMessage = useCallback(async (promptText: string) => {
-    if (!activeChatId) return
+    const runChatId = activeChatId
+    if (!runChatId) return
     const wm = workspaceManagerRef.current
-    const ws = wm.getWorkspace(activeChatId)
+    const ws = wm.getWorkspace(runChatId)
 
     // Check concurrency
-    if (activeRun) {
+    if (activeRun || activeRunIdRef.current) {
       setRelayError('A run is already in progress for this workspace.')
       return
     }
 
-    const storedHistory = await wm.getMessages(activeChatId)
-    const conversationHistory = storedHistory.flatMap(message =>
-      message.role === 'user' || message.role === 'assistant'
-        ? [{ role: message.role, content: message.content || '' }]
-        : [],
-    )
-
     const now = new Date().toISOString()
-    const userMsgId = `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`
-    const userMsg: ChatMessageRecord = {
-      id: userMsgId,
-      chatId: activeChatId,
-      role: 'user',
-      content: promptText,
-      createdAt: now,
-    }
-
-    // Save user message
-    await wm.addMessage(userMsg)
-    setMessages(prev => [...prev, userMsg])
-
-    // Prepare active run info
     const runId = createRunId()
+    activeRunIdRef.current = runId
+    activeRunChatIdRef.current = runChatId
+    const runAbortController = new AbortController()
+    activeRunAbortRef.current = runAbortController
+    let resolveRun: () => void = () => {}
+    const runPromise = new Promise<void>(resolve => { resolveRun = resolve })
+    runSettlementsRef.current.set(runId, { promise: runPromise, resolve: resolveRun })
+    const finishRun = (runtime?: AgentRuntime) => {
+      runSettlementsRef.current.delete(runId)
+      resolveRun()
+      if (activeRunIdRef.current === runId) {
+        activeRunIdRef.current = null
+        activeRunChatIdRef.current = null
+        if (activeRunAbortRef.current === runAbortController) activeRunAbortRef.current = null
+        setActiveRun(null)
+      }
+      if (!runtime || activeRuntimeRef.current === runtime) activeRuntimeRef.current = null
+    }
     setActiveRun({
       runId,
-      chatId: activeChatId,
+      chatId: runChatId,
       state: 'running',
       step: 1,
       prompt: promptText,
@@ -410,279 +465,316 @@ export function App() {
       startedAt: now,
     })
 
-    // Setup Model and Executor
-    let model: OpenAIChatModel | ScriptedChatModel
-    let pythonExecutor: SessionPythonExecutor | MockPythonExecutor
+    let currentTurnText = ''
+    const updateActiveRun = (update: (run: ActiveRunInfo) => ActiveRunInfo) => {
+      if (activeRunIdRef.current !== runId) return
+      setActiveRun(prev => prev?.runId === runId ? update(prev) : prev)
+    }
+    let runtime: AgentRuntime | undefined
+    try {
+      const storedHistory = await wm.getMessages(runChatId)
+      const conversationHistory = storedHistory.flatMap(message =>
+        message.role === 'user' || message.role === 'assistant'
+          ? [{ role: message.role, content: message.content || '' }]
+          : [],
+      )
 
-    if (preferences.isFixtureMode) {
-      // Simulated Testbed Fixture Mode
-      const fixtureResponseFile = '/analysis_output.txt'
-      pythonExecutor = new MockPythonExecutor(async () => {
-        setPythonState({ status: 'running', packages: ['numpy', 'pandas', 'matplotlib'] })
-        const sampleOut = 'Dataset rows: 100\nColumns: 4\nMean calculation: 42.5\n'
-        setPythonState({ status: 'ready', packages: ['numpy', 'pandas', 'matplotlib'] })
-        return {
-          ok: true,
-          exitCode: 0,
-          stdout: sampleOut,
-          stderr: '',
-          files: {
-            [fixtureResponseFile]: new TextEncoder().encode(sampleOut),
+      const userMsgId = `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`
+      const userMsg: ChatMessageRecord = {
+        id: userMsgId,
+        chatId: runChatId,
+        role: 'user',
+        content: promptText,
+        createdAt: now,
+      }
+
+      // Save user message
+      await wm.addMessage(userMsg)
+      touchChatData(runChatId)
+      if (selectedChatIdRef.current === runChatId) setMessages(prev => [...prev, userMsg])
+
+      // Setup Model and Executor
+      let model: OpenAIChatModel | ScriptedChatModel
+      let pythonExecutor: SessionPythonExecutor | MockPythonExecutor
+
+      if (preferences.isFixtureMode) {
+        // Simulated Testbed Fixture Mode
+        const fixtureResponseFile = '/analysis_output.txt'
+        pythonExecutor = new MockPythonExecutor(async () => {
+          if (selectedChatIdRef.current === runChatId) setPythonState({ status: 'running', packages: ['numpy', 'pandas', 'matplotlib'] })
+          const sampleOut = 'Dataset rows: 100\nColumns: 4\nMean calculation: 42.5\n'
+          if (selectedChatIdRef.current === runChatId) setPythonState({ status: 'ready', packages: ['numpy', 'pandas', 'matplotlib'] })
+          return {
+            ok: true,
+            exitCode: 0,
+            stdout: sampleOut,
+            stderr: '',
+            files: {
+              [fixtureResponseFile]: new TextEncoder().encode(sampleOut),
+            },
+            artifacts: [{ path: fixtureResponseFile, mimeType: 'text/plain', dataBase64: btoa(sampleOut) }],
+          }
+        })
+
+        model = new ScriptedChatModel([
+          {
+            toolCalls: [
+              {
+                name: 'write_todos',
+                args: {
+                  todos: [
+                    { content: 'Inspect workspace files', status: 'in_progress' },
+                    { content: 'Run data analysis with pandas', status: 'pending' },
+                    { content: 'Save summary output to workspace', status: 'pending' },
+                  ],
+                },
+                id: `call_plan_${Date.now()}`,
+              },
+            ],
           },
-          artifacts: [{ path: fixtureResponseFile, mimeType: 'text/plain', dataBase64: btoa(sampleOut) }],
+          {
+            toolCalls: [
+              {
+                name: 'execute_python',
+                args: {
+                  code: 'import pandas as pd\nimport numpy as np\nprint("Executing analysis in browser WebAssembly...")\n',
+                },
+                id: `call_py_${Date.now()}`,
+              },
+            ],
+          },
+          {
+            toolCalls: [
+              {
+                name: 'write_todos',
+                args: {
+                  todos: [
+                    { content: 'Inspect workspace files', status: 'completed' },
+                    { content: 'Run data analysis with pandas', status: 'completed' },
+                    { content: 'Save summary output to workspace', status: 'completed' },
+                  ],
+                },
+                id: `call_plan_done_${Date.now()}`,
+              },
+            ],
+          },
+          {
+            text: `Analysis complete. Generated output has been written to \`${fixtureResponseFile}\`. You can preview or download it directly from the workspace files panel.`,
+          },
+        ])
+      } else {
+        // Live model connection
+        const activeModelId = preferences.selectedModel || preferences.customModel
+        if (!currentProvider || !activeModelId) {
+          setIsProviderModalOpen(true)
+          setRelayError('Please configure an endpoint and select a model first.')
+          return
         }
-      })
 
-      model = new ScriptedChatModel([
-        {
-          toolCalls: [
-            {
-              name: 'write_todos',
-              args: {
-                todos: [
-                  { content: 'Inspect workspace files', status: 'in_progress' },
-                  { content: 'Run data analysis with pandas', status: 'pending' },
-                  { content: 'Save summary output to workspace', status: 'pending' },
-                ],
-              },
-              id: `call_plan_${Date.now()}`,
-            },
-          ],
-        },
-        {
-          toolCalls: [
-            {
-              name: 'execute_python',
-              args: {
-                code: 'import pandas as pd\nimport numpy as np\nprint("Executing analysis in browser WebAssembly...")\n',
-              },
-              id: `call_py_${Date.now()}`,
-            },
-          ],
-        },
-        {
-          toolCalls: [
-            {
-              name: 'write_todos',
-              args: {
-                todos: [
-                  { content: 'Inspect workspace files', status: 'completed' },
-                  { content: 'Run data analysis with pandas', status: 'completed' },
-                  { content: 'Save summary output to workspace', status: 'completed' },
-                ],
-              },
-              id: `call_plan_done_${Date.now()}`,
-            },
-          ],
-        },
-        {
-          text: `Analysis complete. Generated output has been written to \`${fixtureResponseFile}\`. You can preview or download it directly from the workspace files panel.`,
-        },
-      ])
-    } else {
-      // Live model connection
-      const activeModelId = preferences.selectedModel || preferences.customModel
-      if (!currentProvider || !activeModelId) {
-        setIsProviderModalOpen(true)
-        setActiveRun(null)
-        setRelayError('Please configure an endpoint and select a model first.')
+        const client = modelClientRef.current
+        if (!client) {
+          setRelayError('Configure a model connection first.')
+          return
+        }
+        model = new OpenAIChatModel(client, {
+          providerId: currentProvider.provider_id,
+          model: activeModelId,
+        })
+
+        // Python Session for active chat
+        try {
+          if (selectedChatIdRef.current === runChatId) setPythonState({ status: 'initializing', packages: ['numpy', 'pandas', 'matplotlib'] })
+          const session = await pythonManagerRef.current.getSession(runChatId, {
+            workspace: ws,
+            assetBaseUrl: '/runtime',
+          })
+          if (!session.isReady) {
+            await session.initialize()
+          }
+          if (selectedChatIdRef.current === runChatId) setPythonState({ status: 'ready', packages: ['numpy', 'pandas', 'matplotlib'] })
+          pythonExecutor = new SessionPythonExecutor(session)
+        } catch (err) {
+          console.warn('Python session initialization warning:', err)
+          // Fallback to mock executor with descriptive error
+          pythonExecutor = new MockPythonExecutor(() => ({
+            ok: false,
+            exitCode: 1,
+            stdout: '',
+            stderr: `Pyodide initialization warning: ${err instanceof Error ? err.message : String(err)}`,
+          }))
+        }
+      }
+
+      if (runAbortController.signal.aborted) {
         return
       }
 
-      const client = modelClientRef.current
-      if (!client) throw new Error('Configure a model connection first.')
-      model = new OpenAIChatModel(client, {
-        providerId: currentProvider.provider_id,
-        model: activeModelId,
+      // Prepare Inspection Data for user inspection modal
+      if (selectedChatIdRef.current === runChatId) setInspectionData({
+        providerName: preferences.providerName,
+        baseUrl: preferences.baseUrl,
+        model: preferences.selectedModel || preferences.customModel || 'fixture-model',
+        systemPrompt:
+          'Autonomous browser agent with isolated file tools and Python WebAssembly runtime. All workspace files reside in the current working directory. Always use relative file paths (e.g., "Iris.csv", "./output.png"); never use absolute paths starting with "/". When generating files with Python, always save to the current working directory using relative paths so they are preserved in the workspace.',
+        messages: [
+          ...conversationHistory,
+          { role: 'user', content: promptText },
+        ],
+        tools: [
+          { name: 'write_todos', description: 'Create and update step-by-step task plan' },
+          { name: 'execute_python', description: 'Run Python in isolated browser WebAssembly sandbox. Save output files using relative paths (e.g., "plot.png") in the current working directory' },
+          { name: 'read_file', description: 'Read file from chat workspace using relative path (e.g., "data.csv")' },
+          { name: 'write_file', description: 'Write or update file in chat workspace using relative path (e.g., "output.txt")' },
+          { name: 'list_directory', description: 'List files in chat workspace ("." for root)' },
+        ],
       })
 
-      // Python Session for active chat
-      try {
-        setPythonState({ status: 'initializing', packages: ['numpy', 'pandas', 'matplotlib'] })
-        const session = await pythonManagerRef.current.getSession(activeChatId, {
-          workspace: ws,
-          assetBaseUrl: '/runtime',
-        })
-        if (!session.isReady) {
-          await session.initialize()
-        }
-        setPythonState({ status: 'ready', packages: ['numpy', 'pandas', 'matplotlib'] })
-        pythonExecutor = new SessionPythonExecutor(session)
-      } catch (err) {
-        console.warn('Python session initialization warning:', err)
-        // Fallback to mock executor with descriptive error
-        pythonExecutor = new MockPythonExecutor(() => ({
-          ok: false,
-          exitCode: 1,
-          stdout: '',
-          stderr: `Pyodide initialization warning: ${err instanceof Error ? err.message : String(err)}`,
-        }))
-      }
-    }
-
-    // Prepare Inspection Data for user inspection modal
-    setInspectionData({
-      providerName: preferences.providerName,
-      baseUrl: preferences.baseUrl,
-      model: preferences.selectedModel || preferences.customModel || 'fixture-model',
-      systemPrompt:
-        'Autonomous browser agent with isolated file tools and Python WebAssembly runtime. All workspace files reside in the current working directory. Always use relative file paths (e.g., "Iris.csv", "./output.png"); never use absolute paths starting with "/". When generating files with Python, always save to the current working directory using relative paths so they are preserved in the workspace.',
-      messages: [
-        ...conversationHistory,
-        { role: 'user', content: promptText },
-      ],
-      tools: [
-        { name: 'write_todos', description: 'Create and update step-by-step task plan' },
-        { name: 'execute_python', description: 'Run Python in isolated browser WebAssembly sandbox. Save output files using relative paths (e.g., "plot.png") in the current working directory' },
-        { name: 'read_file', description: 'Read file from chat workspace using relative path (e.g., "data.csv")' },
-        { name: 'write_file', description: 'Write or update file in chat workspace using relative path (e.g., "output.txt")' },
-        { name: 'list_directory', description: 'List files in chat workspace ("." for root)' },
-      ],
-    })
-
-    // Instantiate AgentRuntime
-    let currentTurnText = ''
-    const runtime = new AgentRuntime({
-      chatId: activeChatId,
-      model,
-      workspace: ws,
-      pythonExecutor,
-      recordStore: wm.recordStore,
-      systemPrompt:
-        'Autonomous browser agent with isolated file tools and Python WebAssembly runtime. All workspace files reside in the current working directory. Always use relative file paths (e.g., "Iris.csv", "./output.png"); never use absolute paths starting with "/". When generating files with Python, always save to the current working directory using relative paths so they are preserved in the workspace.',
-      limits: {
-        maxSteps: 25,
-        timeoutMs: 120_000,
-        concurrency: 'reject',
-      },
-      onEvent: async (event: AgentEvent) => {
-        if (event.type === 'text:delta') {
-          currentTurnText += event.delta
-          setActiveRun(prev => prev ? { ...prev, streamingText: currentTurnText } : null)
-        } else if (event.type === 'run:step') {
-          setActiveRun(prev => prev ? { ...prev, step: event.stepNumber } : null)
-        } else if (event.type === 'plan:update') {
-          const nowStr = new Date().toISOString()
-          setPlanItems(event.todos.map((t, idx) => ({
-            id: t.id || `todo_${idx}`,
-            chatId: activeChatId,
-            index: idx,
-            content: t.content,
-            status: t.status,
-            createdAt: nowStr,
-            updatedAt: nowStr,
-          })))
-        } else if (event.type === 'tool:start') {
-          // If LLM emitted text before this tool call, commit it so messages and tool calls stay intermingled
-          if (currentTurnText.trim().length > 0) {
-            const turnContent = currentTurnText.trim()
-            currentTurnText = ''
-            const turnMsg: ChatMessageRecord = {
-              id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
-              chatId: activeChatId,
-              role: 'assistant',
-              content: turnContent,
-              createdAt: new Date(Date.parse(event.timestamp) - 1).toISOString(),
+      // Instantiate AgentRuntime
+      runtime = new AgentRuntime({
+        chatId: runChatId,
+        model,
+        workspace: ws,
+        pythonExecutor,
+        recordStore: wm.recordStore,
+        systemPrompt:
+          'Autonomous browser agent with isolated file tools and Python WebAssembly runtime. All workspace files reside in the current working directory. Always use relative file paths (e.g., "Iris.csv", "./output.png"); never use absolute paths starting with "/". When generating files with Python, always save to the current working directory using relative paths so they are preserved in the workspace.',
+        limits: {
+          maxSteps: 25,
+          timeoutMs: 120_000,
+          concurrency: 'reject',
+        },
+        onEvent: async (event: AgentEvent) => {
+          if (event.type === 'text:delta') {
+            currentTurnText += event.delta
+            updateActiveRun(prev => ({ ...prev, streamingText: currentTurnText }))
+          } else if (event.type === 'run:step') {
+            updateActiveRun(prev => ({ ...prev, step: event.stepNumber }))
+          } else if (event.type === 'plan:update') {
+            touchChatData(runChatId)
+            const nowStr = new Date().toISOString()
+            if (selectedChatIdRef.current === runChatId) {
+              setPlanItems(event.todos.map((t, idx) => ({
+                id: t.id || `todo_${idx}`,
+                chatId: runChatId,
+                index: idx,
+                content: t.content,
+                status: t.status,
+                createdAt: nowStr,
+                updatedAt: nowStr,
+              })))
             }
-            await wm.addMessage(turnMsg)
-            setMessages(prev => [...prev, turnMsg])
-            setActiveRun(prev => prev ? { ...prev, streamingText: '' } : null)
+          } else if (event.type === 'tool:start') {
+            // If LLM emitted text before this tool call, commit it so messages and tool calls stay intermingled
+            if (currentTurnText.trim().length > 0) {
+              const turnContent = currentTurnText.trim()
+              currentTurnText = ''
+              const turnMsg: ChatMessageRecord = {
+                id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
+                chatId: runChatId,
+                role: 'assistant',
+                content: turnContent,
+                createdAt: new Date(Date.parse(event.timestamp) - 1).toISOString(),
+              }
+              await wm.addMessage(turnMsg)
+              touchChatData(runChatId)
+              if (selectedChatIdRef.current === runChatId) setMessages(prev => [...prev, turnMsg])
+              updateActiveRun(prev => ({ ...prev, streamingText: '' }))
+            }
+
+            const tcRecord: ToolCallRecord = {
+              id: event.callId,
+              runId: event.runId,
+              chatId: runChatId,
+              name: event.name,
+              args: JSON.stringify(event.args),
+              status: 'running',
+              startedAt: event.timestamp,
+            }
+            touchChatData(runChatId)
+            if (selectedChatIdRef.current === runChatId) {
+              setToolCalls(prev => [...prev.filter(t => t.id !== event.callId), tcRecord])
+            }
+          } else if (event.type === 'tool:result') {
+            touchChatData(runChatId)
+            if (selectedChatIdRef.current === runChatId) {
+              setToolCalls(prev =>
+                prev.map(t => t.id === event.callId
+                  ? { ...t, status: 'completed', result: event.result, endedAt: event.timestamp }
+                  : t),
+              )
+            }
+          } else if (event.type === 'tool:error') {
+            touchChatData(runChatId)
+            if (selectedChatIdRef.current === runChatId) {
+              setToolCalls(prev =>
+                prev.map(t => t.id === event.callId
+                  ? { ...t, status: 'failed', error: event.error, endedAt: event.timestamp }
+                  : t),
+              )
+            }
+          } else if (event.type === 'run:error') {
+            updateActiveRun(prev => ({ ...prev, state: 'failed', error: event.error }))
+            if (selectedChatIdRef.current === runChatId) setRelayError(`Run failed: ${event.error}`)
+          } else if (event.type === 'run:cancel') {
+            updateActiveRun(prev => ({ ...prev, state: 'cancelled' }))
           }
-
-          const tcRecord: ToolCallRecord = {
-            id: event.callId,
-            runId: event.runId,
-            chatId: activeChatId,
-            name: event.name,
-            args: JSON.stringify(event.args),
-            status: 'running',
-            startedAt: event.timestamp,
-          }
-          setToolCalls(prev => [...prev.filter(t => t.id !== event.callId), tcRecord])
-        } else if (event.type === 'tool:result') {
-          setToolCalls(prev =>
-            prev.map(t =>
-              t.id === event.callId
-                ? { ...t, status: 'completed', result: event.result, endedAt: event.timestamp }
-                : t,
-            ),
-          )
-        } else if (event.type === 'tool:error') {
-          setToolCalls(prev =>
-            prev.map(t =>
-              t.id === event.callId
-                ? { ...t, status: 'failed', error: event.error, endedAt: event.timestamp }
-                : t,
-            ),
-          )
-        } else if (event.type === 'run:error') {
-          setActiveRun(prev => prev ? { ...prev, state: 'failed', error: event.error } : null)
-          setRelayError(`Run failed: ${event.error}`)
-        } else if (event.type === 'run:cancel') {
-          setActiveRun(prev => prev ? { ...prev, state: 'cancelled' } : null)
-        }
-      },
-    })
-
-    activeRuntimeRef.current = runtime
-
-    try {
-      const result = await runtime.run(promptText, {
-        history: conversationHistory,
-        currentMessageId: userMsgId,
+        },
       })
 
-      // Add assistant response to messages for remaining text
-      const remainingText = currentTurnText.trim() || result.summary.outputText
-      if (remainingText) {
-        setMessages(prev => {
-          if (
-            prev.some(
-              m =>
-                m.role === 'assistant' &&
-                (m.content || '').trim() === remainingText.trim(),
-            )
-          ) {
-            return prev
-          }
-          const assistantMsg: ChatMessageRecord = {
-            id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
-            chatId: activeChatId,
-            role: 'assistant',
-            content: remainingText,
-            createdAt: new Date().toISOString(),
-          }
-          wm.addMessage(assistantMsg).catch(() => {})
-          return [...prev, assistantMsg]
-        })
-      }
+      activeRuntimeRef.current = runtime
 
-      // Refresh files and tool calls
-      const [updatedFiles, updatedTc, updatedRuns] = await Promise.all([
-        ws.listFiles(),
-        wm.recordStore.listToolCallsForChat(activeChatId),
-        wm.listRuns(activeChatId),
-      ])
-      setFiles(updatedFiles)
-      setToolCalls(updatedTc)
-      setRuns(updatedRuns)
+        const result = await runtime.run(promptText, {
+          history: conversationHistory,
+          currentMessageId: userMsgId,
+          signal: runAbortController.signal,
+        })
+
+        // Add assistant response to messages for remaining text
+        const remainingText = currentTurnText.trim() || result.summary.outputText
+        if (remainingText && result.state !== 'cancelled') {
+          const existingMessages = await wm.getMessages(runChatId)
+          if (!existingMessages.some(m => m.role === 'assistant' && (m.content || '').trim() === remainingText.trim())) {
+            const assistantMsg: ChatMessageRecord = {
+              id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
+              chatId: runChatId,
+              role: 'assistant',
+              content: remainingText,
+              createdAt: new Date().toISOString(),
+            }
+            await wm.addMessage(assistantMsg)
+            touchChatData(runChatId)
+            if (selectedChatIdRef.current === runChatId) setMessages(prev => [...prev, assistantMsg])
+          }
+        }
+
+        // Refresh files and tool calls
+        const [updatedFiles, updatedTc, updatedRuns] = await Promise.all([
+          ws.listFiles(),
+          wm.recordStore.listToolCallsForChat(runChatId),
+          wm.listRuns(runChatId),
+        ])
+        touchChatData(runChatId)
+        if (selectedChatIdRef.current === runChatId) {
+          setFiles(updatedFiles)
+          setToolCalls(updatedTc)
+          setRuns(updatedRuns)
+        }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      setActiveRun(prev => prev ? { ...prev, state: 'failed', error: errMsg } : null)
+      updateActiveRun(prev => ({ ...prev, state: 'failed', error: errMsg }))
 
       // Explain malformed planning arguments clearly
-      if (errMsg.includes('InvalidToolArgumentsError') || errMsg.includes('JSON')) {
+      if (selectedChatIdRef.current === runChatId && (errMsg.includes('InvalidToolArgumentsError') || errMsg.includes('JSON'))) {
         setRelayError(
           'The configured model failed to emit valid JSON for tool calls. Endpoint connectivity succeeded, but this model is incompatible with structured agent tool calling. Please select another model in settings.',
         )
-      } else {
+      } else if (selectedChatIdRef.current === runChatId) {
         setRelayError(errMsg)
       }
     } finally {
-      setActiveRun(null)
-      activeRuntimeRef.current = null
+      finishRun(runtime)
     }
-  }, [activeChatId, activeRun, currentProvider, messages, preferences, sessionToken])
+  }, [activeChatId, activeRun, currentProvider, preferences, sessionToken, touchChatData])
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans">
@@ -690,7 +782,7 @@ export function App() {
       <Sidebar
         chats={chats}
         activeChatId={activeChatId}
-        onSelectChat={setActiveChatId}
+        onSelectChat={selectChat}
         onCreateChat={handleCreateChat}
         onDeleteChat={handleDeleteChat}
         onExportChat={handleExportChat}
@@ -727,7 +819,7 @@ export function App() {
           planItems={planItems}
           toolCalls={toolCalls}
           runs={runs}
-          activeRun={activeRun}
+          activeRun={activeRun?.chatId === activeChatId ? activeRun : null}
           onDownloadFile={handleDownloadFile}
         />
 
