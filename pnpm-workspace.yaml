@@ -2,6 +2,9 @@ packages:
   - 'packages/*'
   - 'apps/*'
 
+allowBuilds:
+  esbuild: true
+
 overrides:
   '@langchain/core>langsmith': '0.11.5'
   'langchain>langsmith': '0.11.5'
