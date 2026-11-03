@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { PanelLeftOpen, PanelRightOpen } from 'lucide-react'
 import {
   AgentRuntime,
   OpenAIChatModel,
@@ -61,6 +62,8 @@ export function App() {
   const [chats, setChats] = useState<ChatSession[]>([])
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
   const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [isFilesOpen, setIsFilesOpen] = useState(true)
 
   // --- Active Chat Records ---
   const [messages, setMessages] = useState<ChatMessageRecord[]>([])
@@ -464,6 +467,7 @@ export function App() {
     let runtime: AgentRuntime | undefined
     try {
       const storedHistory = await wm.getMessages(runChatId)
+      const isFirstUserMessage = storedHistory.filter(m => m.role === 'user').length === 0
       const conversationHistory = storedHistory.flatMap(message =>
         message.role === 'user' || message.role === 'assistant'
           ? [{ role: message.role, content: message.content || '' }]
@@ -483,6 +487,20 @@ export function App() {
       await wm.addMessage(userMsg)
       touchChatData(runChatId)
       if (selectedChatIdRef.current === runChatId) setMessages(prev => [...prev, userMsg])
+
+      // Set chat title to the first user message
+      if (isFirstUserMessage) {
+        const currentChat = (await wm.listChats()).find(c => c.id === runChatId)
+        if (currentChat && currentChat.title !== 'Welcome Analysis') {
+          const firstLine = promptText.trim().split('\n')[0]
+          const newTitle = firstLine.length > 40 ? `${firstLine.slice(0, 40)}...` : firstLine
+          if (newTitle) {
+            await wm.updateChat(runChatId, { title: newTitle })
+            const updatedChats = await wm.listChats()
+            setChats(updatedChats)
+          }
+        }
+      }
 
       // Setup Model and Executor
       let model: OpenAIChatModel | ScriptedChatModel
@@ -769,20 +787,48 @@ export function App() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans">
       {/* Sidebar: Chats, Storage Status, Settings */}
-      <Sidebar
-        chats={chats}
-        activeChatId={activeChatId}
-        onSelectChat={selectChat}
-        onCreateChat={handleCreateChat}
-        onDeleteChat={handleDeleteChat}
-        onExportChat={handleExportChat}
-        onRenameChat={handleRenameChat}
-        storageStatus={storageStatus}
-        onOpenSettings={() => setIsProviderModalOpen(true)}
-      />
+      {isSidebarOpen && (
+        <Sidebar
+          chats={chats}
+          activeChatId={activeChatId}
+          onSelectChat={selectChat}
+          onCreateChat={handleCreateChat}
+          onDeleteChat={handleDeleteChat}
+          onExportChat={handleExportChat}
+          onRenameChat={handleRenameChat}
+          storageStatus={storageStatus}
+          onOpenSettings={() => setIsProviderModalOpen(true)}
+          onCollapse={() => setIsSidebarOpen(false)}
+        />
+      )}
 
       {/* Main Conversation Column */}
-      <main className="flex-1 flex flex-col min-w-0 h-full bg-zinc-900/30">
+      <main className="relative flex-1 flex flex-col min-w-0 h-full bg-zinc-900/30">
+        {!isSidebarOpen && (
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(true)}
+            aria-label="Open sidebar"
+            title="Open sidebar"
+            className="absolute top-3 left-3 z-20 p-1.5 rounded-lg bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-100 transition shadow-md backdrop-blur-xs"
+          >
+            <PanelLeftOpen className="w-4 h-4" />
+          </button>
+        )}
+        {!isFilesOpen && (
+          <button
+            type="button"
+            onClick={() => setIsFilesOpen(true)}
+            aria-label="Open workspace files"
+            title="Open workspace files"
+            className="absolute top-3 right-3 z-20 p-1.5 rounded-lg bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-100 transition shadow-md backdrop-blur-xs flex items-center gap-1.5 text-xs"
+          >
+            <PanelRightOpen className="w-4 h-4" />
+            <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-zinc-950 border border-zinc-800 text-zinc-400">
+              {files.length}
+            </span>
+          </button>
+        )}
         {/* Error Banner */}
         <ErrorBanner
           message={relayError}
@@ -829,6 +875,8 @@ export function App() {
         onDownloadFile={handleDownloadFile}
         onDeleteFile={handleDeleteFile}
         onPreviewFile={setPreviewFile}
+        isOpen={isFilesOpen}
+        onClose={() => setIsFilesOpen(false)}
       />
 
       {/* Modals */}

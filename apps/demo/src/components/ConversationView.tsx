@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { AlertCircle, Bot, User } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { AlertCircle, Bot, Check, Copy, User } from 'lucide-react'
 import type {
   ChatMessageRecord,
   PlanItemRecord,
@@ -36,6 +36,18 @@ interface TimelineToolCallItem {
 
 type TimelineItem = TimelineMessageItem | TimelineToolCallItem
 
+function formatTimestamp(isoString?: string): string {
+  if (!isoString) return ''
+  try {
+    const d = new Date(isoString)
+    if (isNaN(d.getTime())) return ''
+    const pad = (n: number) => n.toString().padStart(2, '0')
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  } catch {
+    return ''
+  }
+}
+
 export function ConversationView({
   messages,
   planItems,
@@ -45,6 +57,18 @@ export function ConversationView({
   onDownloadFile,
 }: ConversationViewProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  const handleCopy = useCallback(async (id: string, text?: string | null) => {
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedId(id)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch {
+      // Ignore clipboard failures
+    }
+  }, [])
 
   // Auto-scroll on new streaming text or messages
   useEffect(() => {
@@ -138,19 +162,63 @@ export function ConversationView({
               </div>
             )}
 
-            <div
-              className={`rounded-xl px-4 py-3 leading-relaxed max-w-[85%] ${
-                isUser
-                  ? 'bg-zinc-800 text-zinc-100 border border-zinc-700/80 whitespace-pre-wrap text-sm sm:text-base font-normal shadow-xs'
-                  : 'bg-zinc-900 text-zinc-200 border border-zinc-800/80 text-sm sm:text-[15px]'
-              }`}
-            >
-              {isUser ? (
-                <div className="text-sm sm:text-base leading-relaxed">{msg.content}</div>
-              ) : (
-                <MarkdownView content={msg.content || ''} />
-              )}
-            </div>
+            {isUser ? (
+              <div className="flex flex-col items-end max-w-[85%]">
+                <div className="rounded-xl px-4 py-3 leading-relaxed bg-zinc-800 text-zinc-100 border border-zinc-700/80 whitespace-pre-wrap text-sm sm:text-base font-normal shadow-xs">
+                  {msg.content}
+                </div>
+                <div className="flex items-center gap-2 mt-1 px-1 text-[11px] text-zinc-500 font-mono">
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(msg.id, msg.content)}
+                    aria-label="Copy message"
+                    className="flex items-center gap-1 hover:text-zinc-300 transition"
+                  >
+                    {copiedId === msg.id ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-400" />
+                        <span className="text-emerald-400">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                  <span>•</span>
+                  <span>{formatTimestamp(msg.createdAt)}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-start max-w-[85%] flex-1">
+                <div className="rounded-xl px-4 py-3 leading-relaxed bg-zinc-900 text-zinc-200 border border-zinc-800/80 text-sm sm:text-[15px] w-full">
+                  <MarkdownView content={msg.content || ''} />
+                </div>
+                <div className="flex items-center gap-2 mt-1 px-1 text-[11px] text-zinc-500 font-mono">
+                  <span>{formatTimestamp(msg.createdAt)}</span>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(msg.id, msg.content)}
+                    aria-label="Copy message"
+                    className="flex items-center gap-1 hover:text-zinc-300 transition"
+                  >
+                    {copiedId === msg.id ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-400" />
+                        <span className="text-emerald-400">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {isUser && (
               <div className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 flex items-center justify-center shrink-0 mt-0.5">
@@ -173,7 +241,7 @@ export function ConversationView({
             <div className="rounded-xl px-4 py-3.5 text-sm sm:text-[15px] leading-relaxed max-w-[85%] bg-zinc-900 text-zinc-200 border border-zinc-800/80 w-full space-y-2">
               <div className="flex items-center justify-between text-[11px] text-zinc-400 border-b border-zinc-800 pb-1.5">
                 <span className="font-mono">
-                  Step {activeRun.step} | {activeRun.state}...
+                  {activeRun.state}...
                 </span>
                 <span className="flex items-center gap-1 text-sky-400 animate-pulse">
                   Streaming response

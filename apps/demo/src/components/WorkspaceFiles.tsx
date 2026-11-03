@@ -225,28 +225,17 @@ export function WorkspaceFiles({
           <HardDrive className="w-3.5 h-3.5 text-zinc-400" />
           <span>Workspace Files ({files.length})</span>
         </div>
-        <div className="flex items-center gap-1">
+        {onClose && (
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Upload files into workspace"
-            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 transition"
+            onClick={onClose}
+            aria-label="Close workspace files panel"
+            title="Close panel"
+            className="p-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition"
           >
-            <Upload className="w-3 h-3 text-sky-400" />
-            <span>Upload</span>
+            <PanelRightClose className="w-3.5 h-3.5" />
           </button>
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close workspace files panel"
-              title="Close panel"
-              className="p-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition"
-            >
-              <PanelRightClose className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+        )}
         <input
           ref={fileInputRef}
           type="file"

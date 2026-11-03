@@ -1,7 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
+  Bot,
   Download,
   MessageSquare,
+  PanelLeftClose,
   Pencil,
   Plus,
   Settings,
@@ -17,8 +19,9 @@ interface SidebarProps {
   onDeleteChat: (chatId: string) => void
   onExportChat: (chatId: string) => void
   onRenameChat?: (chatId: string, title: string) => void
-  storageStatus: StorageStatus | null
+  storageStatus?: StorageStatus | null
   onOpenSettings: () => void
+  onCollapse?: () => void
 }
 
 export function Sidebar({
@@ -30,6 +33,7 @@ export function Sidebar({
   onExportChat,
   onRenameChat,
   onOpenSettings,
+  onCollapse,
 }: SidebarProps) {
   const [editingChatId, setEditingChatId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
@@ -86,20 +90,28 @@ export function Sidebar({
       aria-label="Sidebar navigation"
       className="w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col h-full shrink-0 select-none text-zinc-300"
     >
-      {/* Header & New Chat */}
-      <div className="p-3 border-b border-zinc-800 space-y-2">
+      {/* Branding on top left & Collapse toggle */}
+      <div className="p-3 border-b border-zinc-800 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="font-semibold text-xs tracking-wider uppercase text-zinc-400">
-            Browser Agents
-          </span>
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            aria-label="Open model endpoint settings"
-            className="p-1 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-6 h-6 rounded-md bg-zinc-900 border border-zinc-700/80 flex items-center justify-center text-zinc-200 shadow-2xs shrink-0">
+              <Bot className="w-3.5 h-3.5 text-emerald-400" />
+            </div>
+            <span className="font-semibold text-xs tracking-tight text-zinc-100 truncate">
+              Browser Agents
+            </span>
+          </div>
+          {onCollapse && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+              className="p-1 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition"
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
+          )}
         </div>
         <button
           type="button"
@@ -203,6 +215,20 @@ export function Sidebar({
             )
           })
         )}
+      </div>
+
+      {/* Footer: Settings at the bottom */}
+      <div className="p-2 border-t border-zinc-800 bg-zinc-950/80">
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          aria-label="Open model endpoint settings"
+          title="Open settings"
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-zinc-900 text-xs text-zinc-400 hover:text-zinc-100 transition"
+        >
+          <Settings className="w-4 h-4 text-zinc-500" />
+          <span>Settings</span>
+        </button>
       </div>
     </aside>
   )
