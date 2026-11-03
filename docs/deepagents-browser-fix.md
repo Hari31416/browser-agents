@@ -64,7 +64,7 @@ Generated Python stays in its separate isolated execution environment.
 
 ## Verified behavior
 
-The retained report is `experiments/phase0/evidence/deepagents-fix.json`.
+The retained report is `docs/evidence/deepagents-fix.json`.
 
 - Plan creation/completion and write, edit, read, glob, grep, list, and delete.
 - PNG read with preserved base64 bytes and a standard SHA-256 test vector.

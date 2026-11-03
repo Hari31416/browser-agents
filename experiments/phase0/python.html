@@ -1,3 +1,0 @@
-<!doctype html><title>Python experiment</title><pre id="output">running</pre><script type="module">
-const worker=new Worker(new URL('/src/python.js',location.href),{type:'module'}); worker.onmessage=({data})=>{window.phase0Result=data;document.querySelector('#output').textContent=JSON.stringify(data)}; worker.postMessage('run');
-</script>

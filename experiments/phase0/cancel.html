@@ -1,3 +1,0 @@
-<!doctype html><title>Cancellation probe</title><pre id="output">running</pre><script type="module">
-localStorage.setItem('phase0-file','persisted');let ticks=0;const heartbeat=setInterval(()=>ticks++,20);const worker=new Worker(new URL('/src/infinite.js',location.href),{type:'module'});worker.onmessage=({data})=>{if(data!=='ready')return;setTimeout(()=>{worker.terminate();setTimeout(()=>{clearInterval(heartbeat);window.phase0Result={cancelled:true,ticks,file:localStorage.getItem('phase0-file')};localStorage.removeItem('phase0-file');document.querySelector('#output').textContent=JSON.stringify(window.phase0Result)},100)},200)};worker.postMessage('start');
-</script>

@@ -2,8 +2,8 @@
 
 Status: feasibility complete for the tested desktop Chrome configuration.
 The experiments establish a route to the agreed MVP. They are not production
-application components or a security audit. The source, tests, and sanitized
-evidence are in [experiments/phase0](../experiments/phase0/README.md).
+application components or a security audit. The historical feasibility
+evidence is preserved in [docs/evidence](evidence/validated.json).
 
 ## Decisions
 
@@ -152,7 +152,7 @@ first-download benchmark over a CDN.
 Latest browser-session startup samples were 2836, 2864, 2865 ms.
 Asset fetch and validation took 37–39 ms on the local fixture.
 Actual samples and memory observations are stored in
-[the sanitized evidence](../experiments/phase0/evidence/validated.json).
+[the sanitized evidence](evidence/validated.json).
 WebAssembly buffer capacity is about 108 MiB after loading and chart generation.
 It excludes JavaScript heaps, asset copies, browser overhead, and rendering.
 The RSS sample sums the test browser's own processes after multiple interpreter

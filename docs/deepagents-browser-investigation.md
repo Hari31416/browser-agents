@@ -8,9 +8,9 @@ The original Phase 0 implementation was committed first as `f50861b`.
 A [supported browser adapter](deepagents-browser-fix.md) now addresses the
 initialization and required file/planning workflow without the diagnostic
 async-hooks alias. The matrix below records the original unpatched findings.
-Its original evidence remains in `evidence/deepagents-diagnostics.json`.
+Its original evidence remains in `docs/evidence/deepagents-diagnostics.json`.
 The diagnostic command now runs against patched dependencies and writes
-`evidence/deepagents-diagnostics-after-fix.json`; its globals-only variant passes.
+`docs/evidence/deepagents-diagnostics-after-fix.json`; its globals-only variant passes.
 
 ## Result
 

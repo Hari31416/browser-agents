@@ -71,9 +71,7 @@ const baseUrl = `http://127.0.0.1:${port}`
 
 console.log(`Test fixture server listening at ${baseUrl}`)
 
-const { chromium } = await import(
-  join(repoRoot, 'experiments/phase0/node_modules/playwright/index.mjs')
-)
+const { chromium } = await import('playwright')
 
 const browser = await chromium.launch({
   executablePath:
