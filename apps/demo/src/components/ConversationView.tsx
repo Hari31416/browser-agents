@@ -133,27 +133,27 @@ export function ConversationView({
             }`}
           >
             {!isUser && (
-              <div className="w-7 h-7 rounded-full bg-sky-950 border border-sky-800 text-sky-400 flex items-center justify-center shrink-0 mt-0.5">
+              <div className="w-8 h-8 rounded-full bg-sky-950 border border-sky-800 text-sky-400 flex items-center justify-center shrink-0 mt-0.5">
                 <Bot className="w-4 h-4" />
               </div>
             )}
 
             <div
-              className={`rounded-lg p-4 text-xs leading-relaxed max-w-[85%] ${
+              className={`rounded-xl px-4 py-3 leading-relaxed max-w-[85%] ${
                 isUser
-                  ? 'bg-zinc-800 text-zinc-100 border border-zinc-700/80 whitespace-pre-wrap'
-                  : 'bg-zinc-900 text-zinc-200 border border-zinc-800/80'
+                  ? 'bg-zinc-800 text-zinc-100 border border-zinc-700/80 whitespace-pre-wrap text-sm sm:text-base font-normal shadow-xs'
+                  : 'bg-zinc-900 text-zinc-200 border border-zinc-800/80 text-sm sm:text-[15px]'
               }`}
             >
               {isUser ? (
-                <div>{msg.content}</div>
+                <div className="text-sm sm:text-base leading-relaxed">{msg.content}</div>
               ) : (
                 <MarkdownView content={msg.content || ''} />
               )}
             </div>
 
             {isUser && (
-              <div className="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 flex items-center justify-center shrink-0 mt-0.5">
+              <div className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 flex items-center justify-center shrink-0 mt-0.5">
                 <User className="w-4 h-4" />
               </div>
             )}
@@ -166,11 +166,11 @@ export function ConversationView({
         <div className="max-w-4xl mx-auto space-y-4 pt-1">
           {/* Live Assistant Response Streaming */}
           <div className="flex gap-3 justify-start">
-            <div className="w-7 h-7 rounded-full bg-sky-950 border border-sky-800 text-sky-400 flex items-center justify-center shrink-0 mt-0.5">
+            <div className="w-8 h-8 rounded-full bg-sky-950 border border-sky-800 text-sky-400 flex items-center justify-center shrink-0 mt-0.5">
               <Bot className="w-4 h-4" />
             </div>
 
-            <div className="rounded-lg p-4 text-xs leading-relaxed max-w-[85%] bg-zinc-900 text-zinc-200 border border-zinc-800/80 w-full space-y-2">
+            <div className="rounded-xl px-4 py-3.5 text-sm sm:text-[15px] leading-relaxed max-w-[85%] bg-zinc-900 text-zinc-200 border border-zinc-800/80 w-full space-y-2">
               <div className="flex items-center justify-between text-[11px] text-zinc-400 border-b border-zinc-800 pb-1.5">
                 <span className="font-mono">
                   Step {activeRun.step} | {activeRun.state}...
