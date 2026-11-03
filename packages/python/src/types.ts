@@ -86,6 +86,8 @@ export interface WorkerRunRequest {
   type: 'run'
   code: string
   files?: Record<string, Uint8Array>
+  /** Replace the worker's entire /workspace with `files` before execution. */
+  filesAreSnapshot?: boolean
   maxOutputChars?: number
 }
 

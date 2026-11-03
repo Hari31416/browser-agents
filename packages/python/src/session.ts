@@ -320,6 +320,7 @@ export class PythonSessionImpl implements PythonSession {
         {
           code,
           files: inputFiles,
+          filesAreSnapshot: Boolean(this.workspace && snapshot),
           maxOutputChars: maxChars,
         },
         timeout,

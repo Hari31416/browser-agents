@@ -46,12 +46,15 @@ const probe = async () => {
 
 function readFilesRecursive(dir = '/workspace', prefix = '') {
   const files = {};
+  const rootStat = py.FS.lstat(dir);
+  if (py.FS.isLink(rootStat.mode) || !py.FS.isDir(rootStat.mode)) return files;
   const entries = py.FS.readdir(dir);
   for (const name of entries) {
     if (name === '.' || name === '..') continue;
     const fullPath = dir + '/' + name;
     const virtPath = prefix + '/' + name;
-    const stat = py.FS.stat(fullPath);
+    const stat = py.FS.lstat(fullPath);
+    if (py.FS.isLink(stat.mode)) continue;
     if (py.FS.isDir(stat.mode)) {
       Object.assign(files, readFilesRecursive(fullPath, virtPath));
     } else if (py.FS.isFile(stat.mode)) {
@@ -74,6 +77,36 @@ function ensureParentDirs(path) {
     } catch (e) {
       // Ignore if exists
     }
+  }
+}
+
+function removeWorkspaceEntry(path) {
+  const stat = py.FS.lstat(path);
+  if (py.FS.isLink(stat.mode) || !py.FS.isDir(stat.mode)) {
+    py.FS.unlink(path);
+    return;
+  }
+  for (const name of py.FS.readdir(path)) {
+    if (name === '.' || name === '..') continue;
+    removeWorkspaceEntry(path + '/' + name);
+  }
+  py.FS.rmdir(path);
+}
+
+function clearWorkspace() {
+  try {
+    const rootStat = py.FS.lstat('/workspace');
+    if (py.FS.isLink(rootStat.mode) || !py.FS.isDir(rootStat.mode)) {
+      py.FS.unlink('/workspace');
+      py.FS.mkdir('/workspace');
+    }
+  } catch {
+    py.FS.mkdir('/workspace');
+  }
+  py.FS.chdir('/');
+  for (const name of py.FS.readdir('/workspace')) {
+    if (name === '.' || name === '..') continue;
+    removeWorkspaceEntry('/workspace/' + name);
   }
 }
 
@@ -169,14 +202,37 @@ onmessage = async ({ data }) => {
         throw Error('Invalid code length');
       }
 
-      // Sync incoming files into /workspace
-      for (const [name, bytes] of Object.entries(data.files ?? {})) {
+      // Validate the whole input before any snapshot cleanup is allowed.
+      if (data.files !== undefined && (!data.files || typeof data.files !== 'object' || Array.isArray(data.files))) {
+        throw Error('Invalid input file map');
+      }
+      const incomingFiles = Object.entries(data.files ?? {});
+      for (const [name, bytes] of incomingFiles) {
         if (!safePath(name) || !(bytes instanceof Uint8Array) || bytes.length > 5_000_000) {
           throw Error('Invalid input file: ' + name);
         }
+      }
+      if (data.filesAreSnapshot === true) {
+        const filePaths = new Set(incomingFiles.map(([name]) => name));
+        for (const name of filePaths) {
+          const parts = name.split('/').filter(Boolean);
+          for (let i = 1; i < parts.length; i++) {
+            const parent = '/' + parts.slice(0, i).join('/');
+            if (filePaths.has(parent)) throw Error('Conflicting snapshot paths: ' + parent + ' and ' + name);
+          }
+        }
+      }
+
+      // A workspace-backed session sends an authoritative snapshot. Remove stale
+      // entries without following symlinks before copying that snapshot in.
+      if (data.filesAreSnapshot === true) clearWorkspace();
+
+      // Sync incoming files into /workspace
+      for (const [name, bytes] of incomingFiles) {
         ensureParentDirs(name);
         py.FS.writeFile('/workspace' + name, bytes);
       }
+      if (data.filesAreSnapshot === true) py.FS.chdir('/workspace');
 
       stdout = '';
       stderr = '';

@@ -292,6 +292,116 @@ print(json.dumps(results))
 
   console.log('Cross-chat isolation and variable reset verified.');
 
+  // 4a. Workspace snapshots remove stale worker files but keep the interpreter alive
+  const workspaceSnapshotResult = await page.evaluate(async (url) => {
+    const { AssetLoader, PythonSessionImpl } = window.PythonModule;
+    const { WorkspaceManager, MemoryFileStore, MemoryRecordStore, TabLockManager } = window.WorkspaceModule;
+    const loader = new AssetLoader(url + '/runtime');
+    const assets = await loader.load();
+    const manager = new WorkspaceManager({
+      fileStore: new MemoryFileStore(),
+      recordStore: new MemoryRecordStore(),
+      lockManager: new TabLockManager(),
+    });
+    const chat = await manager.createChat('snapshot cleanup');
+    const workspace = manager.getWorkspace(chat.id);
+    await workspace.writeFile('/nested/deep/stale.txt', 'remove this');
+    await workspace.writeFile('/generated/stale.txt', 'remove this too');
+    await workspace.writeFile('/swap', 'this file becomes a directory');
+    await workspace.writeFile('/prevalidate.txt', 'must survive invalid input');
+    const session = new PythonSessionImpl(chat.id, { assets, workspace });
+
+    const invalidSnapshot = await session.run('pass', {
+      inputFiles: { '/../invalid.txt': new TextEncoder().encode('bad') },
+    });
+    if (invalidSnapshot.ok) throw Error('Invalid incoming path unexpectedly succeeded');
+    if ((await workspace.readFile('/prevalidate.txt'))?.content !== 'must survive invalid input') {
+      throw Error('Invalid snapshot input deleted workspace data before validation');
+    }
+
+    const first = await session.run(`
+import os
+persistent_value = 42
+open('generated/stale.txt', 'w').write('python output')
+open('/tmp/keep-outside-workspace.txt', 'w').write('safe')
+os.symlink('/tmp', 'workspace_link')
+os.chdir('nested/deep')
+`);
+    if (!first.ok) throw Error(first.error);
+
+    // Simulate UI edits between turns: delete nested files and replace a file with a directory.
+    await workspace.deleteFile('/nested/deep/stale.txt');
+    await workspace.deleteFile('/generated/stale.txt');
+    await workspace.deleteFile('/swap');
+    await workspace.writeFile('/swap/child.txt', 'child');
+    const second = await session.run(`
+import os
+assert persistent_value == 42
+assert open('/tmp/keep-outside-workspace.txt').read() == 'safe'
+assert not os.path.exists('nested/deep/stale.txt')
+assert not os.path.exists('generated/stale.txt')
+assert os.path.isdir('swap')
+assert open('swap/child.txt').read() == 'child'
+`);
+    if (!second.ok) throw Error(second.error);
+
+    // Replace the directory with a file on the next authoritative snapshot.
+    await workspace.deleteFile('/swap/child.txt');
+    await workspace.writeFile('/swap', 'now a file');
+    const third = await session.run(`
+import os
+assert persistent_value == 42
+assert os.path.isfile('swap')
+assert open('swap').read() == 'now a file'
+assert not os.path.exists('swap/child.txt')
+`);
+    if (!third.ok) throw Error(third.error);
+
+    const moveWorkspace = await session.run(`
+import os
+os.chdir('/')
+open('/tmp/workspace-root-sentinel.txt', 'w').write('untouched')
+os.rename('/workspace', '/tmp/moved-workspace-for-test')
+os.symlink('/tmp', '/workspace')
+`);
+    if (!moveWorkspace.ok) throw Error(moveWorkspace.error);
+    const resetRoot = await session.run(`
+import os
+assert os.getcwd() == '/workspace'
+assert not os.path.islink('/workspace')
+assert open('/tmp/workspace-root-sentinel.txt').read() == 'untouched'
+assert os.path.isfile('/tmp/moved-workspace-for-test/swap')
+`);
+    if (!resetRoot.ok) throw Error(resetRoot.error);
+    await session.terminate();
+    return { first: first.ok, second: second.ok, third: third.ok, resetRoot: resetRoot.ok };
+  }, baseUrl);
+  assert.deepEqual(workspaceSnapshotResult, { first: true, second: true, third: true, resetRoot: true });
+  console.log('Authoritative workspace snapshots remove nested stale files and support path replacements while preserving Python variables.');
+
+  // Without a ChatWorkspace, inputFiles remain incremental and interpreter files survive.
+  const incrementalInputResult = await page.evaluate(async (url) => {
+    const { AssetLoader, PythonSessionImpl } = window.PythonModule;
+    const loader = new AssetLoader(url + '/runtime');
+    const assets = await loader.load();
+    const session = new PythonSessionImpl('incremental-inputs', { assets });
+    const first = await session.run('persistent_value = 7\nopen("created.txt", "w").write("kept")', {
+      inputFiles: { '/seed.txt': new TextEncoder().encode('seed') },
+    });
+    if (!first.ok) throw Error(first.error);
+    const second = await session.run(`
+import os
+assert persistent_value == 7
+assert open('created.txt').read() == 'kept'
+assert open('seed.txt').read() == 'seed'
+assert open('later.txt').read() == 'later'
+`, { inputFiles: { '/later.txt': new TextEncoder().encode('later') } });
+    await session.terminate();
+    return { ok: second.ok, error: second.error };
+  }, baseUrl);
+  assert.equal(incrementalInputResult.ok, true, incrementalInputResult.error);
+  console.log('No-workspace Python input files remain incremental across runs.');
+
   // 5. Python exception reporting
   const exceptionResult = await page.evaluate(async () => {
     return await window.session1.run("raise ValueError('Specific test exception message')");
