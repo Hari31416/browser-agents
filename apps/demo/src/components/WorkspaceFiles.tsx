@@ -10,6 +10,7 @@ import {
   Trash2,
   Upload,
   User,
+  PanelRightClose,
 } from 'lucide-react'
 import type { ToolCallRecord, WorkspaceFile } from '@browser-agents/workspace'
 import { formatBytes } from '../lib/sanitizer'
@@ -21,6 +22,8 @@ interface WorkspaceFilesProps {
   onDownloadFile: (path: string) => void
   onDeleteFile: (path: string) => void
   onPreviewFile: (file: WorkspaceFile) => void
+  isOpen?: boolean
+  onClose?: () => void
 }
 
 export function WorkspaceFiles({
@@ -30,6 +33,8 @@ export function WorkspaceFiles({
   onDownloadFile,
   onDeleteFile,
   onPreviewFile,
+  isOpen = true,
+  onClose,
 }: WorkspaceFilesProps) {
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -206,25 +211,42 @@ export function WorkspaceFiles({
     )
   }
 
+  if (!isOpen) {
+    return null
+  }
+
   return (
     <aside
       aria-label="Workspace files"
-      className="w-72 bg-zinc-950 border-l border-zinc-800 flex flex-col h-full shrink-0 select-none text-zinc-300"
+      className="w-72 bg-zinc-950 border-l border-zinc-800/80 flex flex-col h-full shrink-0 select-none text-zinc-300"
     >
-      <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
+      <div className="p-3 border-b border-zinc-800/80 flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-          <HardDrive className="w-3.5 h-3.5 text-zinc-500" />
+          <HardDrive className="w-3.5 h-3.5 text-zinc-400" />
           <span>Workspace Files ({files.length})</span>
         </div>
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          aria-label="Upload files into workspace"
-          className="flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 transition"
-        >
-          <Upload className="w-3 h-3 text-sky-400" />
-          <span>Upload</span>
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Upload files into workspace"
+            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 transition"
+          >
+            <Upload className="w-3 h-3 text-sky-400" />
+            <span>Upload</span>
+          </button>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close workspace files panel"
+              title="Close panel"
+              className="p-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition"
+            >
+              <PanelRightClose className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
         <input
           ref={fileInputRef}
           type="file"

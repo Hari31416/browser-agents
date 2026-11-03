@@ -31,7 +31,6 @@ import type {
 } from './types'
 
 import { Sidebar } from './components/Sidebar'
-import { ChatHeader } from './components/ChatHeader'
 import { ConversationView } from './components/ConversationView'
 import { WorkspaceFiles } from './components/WorkspaceFiles'
 import { Composer } from './components/Composer'
@@ -293,13 +292,14 @@ export function App() {
     }
   }, [selectChat])
 
-  const handleUpdateTitle = useCallback(async (newTitle: string) => {
-    if (!activeChatId) return
+  const handleRenameChat = useCallback(async (chatId: string, newTitle: string) => {
+    const trimmed = newTitle.trim()
+    if (!trimmed) return
     const wm = workspaceManagerRef.current
-    await wm.updateChat(activeChatId, { title: newTitle })
+    await wm.updateChat(chatId, { title: trimmed })
     const updatedChats = await wm.listChats()
     setChats(updatedChats)
-  }, [activeChatId])
+  }, [])
 
   const handleExportChat = useCallback(async (chatId: string) => {
     const wm = workspaceManagerRef.current
@@ -776,9 +776,8 @@ export function App() {
         onCreateChat={handleCreateChat}
         onDeleteChat={handleDeleteChat}
         onExportChat={handleExportChat}
+        onRenameChat={handleRenameChat}
         storageStatus={storageStatus}
-        preferences={preferences}
-        connected={Boolean(currentProvider)}
         onOpenSettings={() => setIsProviderModalOpen(true)}
       />
 
@@ -792,17 +791,6 @@ export function App() {
           actionLabel="Configure"
         />
 
-        {/* Top Header */}
-        <ChatHeader
-          title={chats.find(c => c.id === activeChatId)?.title || 'Untitled Chat'}
-          onUpdateTitle={handleUpdateTitle}
-          preferences={preferences}
-          pythonState={pythonState}
-          onResetPython={handleResetPython}
-          onOpenInspector={() => setIsInspectorOpen(true)}
-          onOpenDataFlow={() => setIsDataFlowOpen(true)}
-        />
-
         {/* Conversation Stream */}
         <ConversationView
           messages={messages}
@@ -813,7 +801,7 @@ export function App() {
           onDownloadFile={handleDownloadFile}
         />
 
-        {/* Composer */}
+        {/* Composer with Integrated Model Selector & Controls */}
         <Composer
           isRunning={Boolean(activeRun)}
           onSendMessage={handleSendMessage}
@@ -824,6 +812,12 @@ export function App() {
               ? 'Configure an endpoint and select a model in settings to begin'
               : 'Ask the agent to analyze files, generate charts, or write Python...'
           }
+          preferences={preferences}
+          pythonState={pythonState}
+          onResetPython={handleResetPython}
+          onOpenSettings={() => setIsProviderModalOpen(true)}
+          onOpenInspector={() => setIsInspectorOpen(true)}
+          onOpenDataFlow={() => setIsDataFlowOpen(true)}
         />
       </main>
 
