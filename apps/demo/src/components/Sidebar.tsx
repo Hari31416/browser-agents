@@ -1,15 +1,13 @@
-import { useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Download,
+  MessageSquare,
+  Pencil,
   Plus,
   Settings,
   Trash2,
-  Database,
-  Radio,
-  FileText,
 } from 'lucide-react'
 import type { ChatSession, StorageStatus } from '@browser-agents/workspace'
-import type { ProviderPreferences } from '../types'
 
 interface SidebarProps {
   chats: ChatSession[]
@@ -18,9 +16,8 @@ interface SidebarProps {
   onCreateChat: () => void
   onDeleteChat: (chatId: string) => void
   onExportChat: (chatId: string) => void
+  onRenameChat?: (chatId: string, title: string) => void
   storageStatus: StorageStatus | null
-  preferences: ProviderPreferences
-  connected: boolean
   onOpenSettings: () => void
 }
 
@@ -31,11 +28,41 @@ export function Sidebar({
   onCreateChat,
   onDeleteChat,
   onExportChat,
-  storageStatus,
-  preferences,
-  connected,
+  onRenameChat,
   onOpenSettings,
 }: SidebarProps) {
+  const [editingChatId, setEditingChatId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (editingChatId && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editingChatId])
+
+  const startEditing = useCallback((chat: ChatSession, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingChatId(chat.id)
+    setEditTitle(chat.title || 'Untitled Chat')
+  }, [])
+
+  const saveEdit = useCallback(
+    (chatId: string) => {
+      const trimmed = editTitle.trim()
+      if (trimmed) {
+        onRenameChat?.(chatId, trimmed)
+      }
+      setEditingChatId(null)
+    },
+    [editTitle, onRenameChat],
+  )
+
+  const cancelEdit = useCallback(() => {
+    setEditingChatId(null)
+  }, [])
+
   const handleDelete = useCallback(
     (e: React.MouseEvent, chatId: string) => {
       e.stopPropagation()
@@ -62,9 +89,9 @@ export function Sidebar({
       {/* Header & New Chat */}
       <div className="p-3 border-b border-zinc-800 space-y-2">
         <div className="flex items-center justify-between">
-          <div className="font-semibold text-xs tracking-wider uppercase text-zinc-400">
+          <span className="font-semibold text-xs tracking-wider uppercase text-zinc-400">
             Browser Agents
-          </div>
+          </span>
           <button
             type="button"
             onClick={onOpenSettings}
@@ -94,6 +121,8 @@ export function Sidebar({
         ) : (
           chats.map(chat => {
             const isActive = chat.id === activeChatId
+            const isEditing = editingChatId === chat.id
+
             return (
               <div
                 key={chat.id}
@@ -111,79 +140,69 @@ export function Sidebar({
                     : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
                 }`}
               >
-                <div className="flex items-center gap-2 overflow-hidden mr-2">
-                  <FileText className="w-3.5 h-3.5 shrink-0 text-zinc-500" />
-                  <span className="truncate">{chat.title || 'Untitled Chat'}</span>
+                <div className="flex items-center gap-2 overflow-hidden mr-1 min-w-0 flex-1">
+                  <MessageSquare className="w-3.5 h-3.5 shrink-0 text-zinc-500" />
+                  {isEditing ? (
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={editTitle}
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => setEditTitle(e.target.value)}
+                      onKeyDown={e => {
+                        e.stopPropagation()
+                        if (e.key === 'Enter') saveEdit(chat.id)
+                        if (e.key === 'Escape') cancelEdit()
+                      }}
+                      onBlur={() => saveEdit(chat.id)}
+                      className="bg-zinc-900 text-zinc-100 px-1 py-0.5 rounded border border-zinc-700 text-xs w-full focus:outline-hidden"
+                    />
+                  ) : (
+                    <span
+                      onDoubleClick={e => startEditing(chat, e)}
+                      title="Double-click to rename"
+                      className="truncate"
+                    >
+                      {chat.title || 'Untitled Chat'}
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
-                  <button
-                    type="button"
-                    onClick={e => handleExport(e, chat.id)}
-                    aria-label={`Export ${chat.title || 'chat'}`}
-                    className="p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/60"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={e => handleDelete(e, chat.id)}
-                    aria-label={`Delete ${chat.title || 'chat'}`}
-                    className="p-1 rounded text-zinc-400 hover:text-red-400 hover:bg-zinc-700/60"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+
+                {!isEditing && (
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
+                    <button
+                      type="button"
+                      onClick={e => startEditing(chat, e)}
+                      aria-label={`Rename ${chat.title || 'chat'}`}
+                      title="Rename thread"
+                      className="p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/60"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={e => handleExport(e, chat.id)}
+                      aria-label={`Export ${chat.title || 'chat'}`}
+                      title="Export chat"
+                      className="p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/60"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={e => handleDelete(e, chat.id)}
+                      aria-label={`Delete ${chat.title || 'chat'}`}
+                      title="Delete chat"
+                      className="p-1 rounded text-zinc-400 hover:text-red-400 hover:bg-zinc-700/60"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             )
           })
         )}
-      </div>
-
-      {/* Footer: Storage and Provider status */}
-      <div className="p-3 border-t border-zinc-800 text-[11px] space-y-2 bg-zinc-950/80">
-        {/* Storage status */}
-        <div className="flex items-center justify-between text-zinc-400">
-          <div className="flex items-center gap-1.5">
-            <Database className="w-3.5 h-3.5 text-zinc-500" />
-            <span>Storage:</span>
-          </div>
-          <span
-            className={`font-mono ${
-              storageStatus?.isDurable ? 'text-emerald-400' : 'text-amber-400'
-            }`}
-          >
-            {storageStatus?.isDurable ? 'Durable (OPFS)' : 'In-Memory'}
-          </span>
-        </div>
-
-        {/* Model status */}
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={onOpenSettings}
-          onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') onOpenSettings()
-          }}
-          className="flex items-center justify-between p-1.5 rounded bg-zinc-900 border border-zinc-800 hover:border-zinc-700 cursor-pointer transition text-zinc-300"
-        >
-          <div className="flex items-center gap-1.5 truncate mr-1">
-            <Radio
-              className={`w-3.5 h-3.5 shrink-0 ${
-                preferences.isFixtureMode
-                  ? 'text-sky-400'
-                  : connected
-                    ? 'text-emerald-400'
-                    : 'text-zinc-500'
-              }`}
-            />
-            <span className="truncate">
-              {preferences.isFixtureMode
-                ? 'Fixture Mode'
-                : preferences.selectedModel || preferences.customModel || 'No Model Set'}
-            </span>
-          </div>
-          <Settings className="w-3 h-3 text-zinc-500 shrink-0" />
-        </div>
       </div>
     </aside>
   )
