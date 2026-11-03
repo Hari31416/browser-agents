@@ -377,6 +377,13 @@ export function App() {
       return
     }
 
+    const storedHistory = await wm.getMessages(activeChatId)
+    const conversationHistory = storedHistory.flatMap(message =>
+      message.role === 'user' || message.role === 'assistant'
+        ? [{ role: message.role, content: message.content || '' }]
+        : [],
+    )
+
     const now = new Date().toISOString()
     const userMsgId = `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`
     const userMsg: ChatMessageRecord = {
@@ -521,7 +528,7 @@ export function App() {
       systemPrompt:
         'Autonomous browser agent with isolated file tools and Python WebAssembly runtime. All workspace files reside in the current working directory. Always use relative file paths (e.g., "Iris.csv", "./output.png"); never use absolute paths starting with "/". When generating files with Python, always save to the current working directory using relative paths so they are preserved in the workspace.',
       messages: [
-        ...messages.map(m => ({ role: m.role, content: m.content || '' })),
+        ...conversationHistory,
         { role: 'user', content: promptText },
       ],
       tools: [
@@ -620,7 +627,10 @@ export function App() {
     activeRuntimeRef.current = runtime
 
     try {
-      const result = await runtime.run(promptText)
+      const result = await runtime.run(promptText, {
+        history: conversationHistory,
+        currentMessageId: userMsgId,
+      })
 
       // Add assistant response to messages for remaining text
       const remainingText = currentTurnText.trim() || result.summary.outputText

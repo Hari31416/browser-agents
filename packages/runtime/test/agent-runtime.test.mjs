@@ -32,6 +32,15 @@ function createTestWorkspace(chatId = 'chat-test-01') {
   return { workspace, recordStore, fileStore }
 }
 
+function mapObservedConversation(messages) {
+  return messages
+    .filter(message => ['human', 'ai'].includes(message._getType()))
+    .map(message => ({
+      role: message._getType() === 'human' ? 'user' : 'assistant',
+      content: String(message.content),
+    }))
+}
+
 console.log('--- Starting AgentRuntime Test Suite ---')
 
 // 1. Headless multi-step plan, file, and Python execution (Exit Check primary path)
@@ -356,6 +365,100 @@ console.log('Test 2c: Parallel Python calls share the latest synchronized file s
   assert.equal((await workspace.readFile('/parallel-2.txt'))?.content, 'second')
 }
 console.log('Passed Test 2c!')
+
+// 2d. Historical messages reach every model request across runs and reloads
+console.log('Test 2d: Runtime requests include stored or explicitly supplied history...')
+{
+  const { recordStore } = createTestWorkspace('chat-history-runtime')
+  const firstModel = new ScriptedChatModel([{ text: 'My name is Ada.' }, { text: 'You said Ada.' }])
+  const firstRuntime = new AgentRuntime({ chatId: 'chat-history-runtime', model: firstModel, recordStore })
+  assert.equal((await firstRuntime.run('My name is Ada.')).ok, true)
+  assert.equal((await firstRuntime.run('What is my name?')).ok, true)
+
+  assert.deepEqual(mapObservedConversation(firstModel.observedMessages[1]), [
+    { role: 'user', content: 'My name is Ada.' },
+    { role: 'assistant', content: 'My name is Ada.' },
+    { role: 'user', content: 'What is my name?' },
+  ])
+
+  const reloadedModel = new ScriptedChatModel([{ text: 'Ada.' }])
+  const reloadedRuntime = new AgentRuntime({ chatId: 'chat-history-runtime', model: reloadedModel, recordStore })
+  assert.equal((await reloadedRuntime.run('Remind me again')).ok, true)
+  assert.deepEqual(mapObservedConversation(reloadedModel.observedMessages[0]), [
+    { role: 'user', content: 'My name is Ada.' },
+    { role: 'assistant', content: 'My name is Ada.' },
+    { role: 'user', content: 'What is my name?' },
+    { role: 'assistant', content: 'You said Ada.' },
+    { role: 'user', content: 'Remind me again' },
+  ])
+}
+console.log('Passed stored history and reload checks!')
+
+// Explicit history excludes the already-saved current turn by identity, without content dedup.
+{
+  const { recordStore } = createTestWorkspace('chat-history-explicit')
+  await recordStore.addMessage({ id: 'prior-1', chatId: 'chat-history-explicit', role: 'user', content: 'repeat', createdAt: '2026-01-01T00:00:00.000Z' })
+  await recordStore.addMessage({ id: 'prior-2', chatId: 'chat-history-explicit', role: 'assistant', content: 'first reply', createdAt: '2026-01-01T00:00:01.000Z' })
+  await recordStore.addMessage({ id: 'current-id', chatId: 'chat-history-explicit', role: 'user', content: 'repeat', createdAt: '2026-01-01T00:00:02.000Z' })
+  const model = new ScriptedChatModel([{ text: 'Second reply.' }])
+  const runtime = new AgentRuntime({ chatId: 'chat-history-explicit', model, recordStore })
+  await runtime.run('repeat', {
+    history: [
+      { role: 'user', content: 'repeat' },
+      { role: 'assistant', content: 'first reply' },
+    ],
+    currentMessageId: 'current-id',
+  })
+  assert.deepEqual(mapObservedConversation(model.observedMessages[0]), [
+    { role: 'user', content: 'repeat' },
+    { role: 'assistant', content: 'first reply' },
+    { role: 'user', content: 'repeat' },
+  ])
+  const idFilteredModel = new ScriptedChatModel([{ text: 'Still one current turn.' }])
+  const idFilteredRuntime = new AgentRuntime({ chatId: 'chat-history-explicit', model: idFilteredModel, recordStore })
+  await idFilteredRuntime.run('repeat', { currentMessageId: 'current-id' })
+  assert.deepEqual(mapObservedConversation(idFilteredModel.observedMessages[0]), [
+    { role: 'user', content: 'repeat' },
+    { role: 'assistant', content: 'first reply' },
+    { role: 'user', content: 'repeat' },
+  ])
+}
+console.log('Passed caller-owned history checks!')
+
+// Repeated historical prompts remain distinct, and history contributes to context limits.
+{
+  const model = new ScriptedChatModel([{ text: 'Handled repeats.' }])
+  const runtime = new AgentRuntime({ chatId: 'chat-history-repeats', model })
+  await runtime.run('repeat', {
+    history: [
+      { role: 'user', content: 'repeat' },
+      { role: 'assistant', content: 'reply' },
+      { role: 'user', content: 'repeat' },
+    ],
+  })
+  assert.deepEqual(mapObservedConversation(model.observedMessages[0]), [
+    { role: 'user', content: 'repeat' },
+    { role: 'assistant', content: 'reply' },
+    { role: 'user', content: 'repeat' },
+    { role: 'user', content: 'repeat' },
+  ])
+
+  const limitedModel = new ScriptedChatModel([{ text: 'Should not run.' }])
+  const limitedRuntime = new AgentRuntime({
+    chatId: 'chat-history-limit',
+    model: limitedModel,
+    limits: { maxContextMessages: 2 },
+  })
+  await assert.rejects(
+    () => limitedRuntime.run('current', { history: [
+      { role: 'user', content: 'prior one' },
+      { role: 'assistant', content: 'prior two' },
+    ] }),
+    ContextLimitExceededError,
+  )
+  assert.equal(limitedModel.observedCalls, 0)
+}
+console.log('Passed repeated prompt and history context limit checks!')
 
 // 3. Step limit stop
 console.log('Test 3: Step limit stops runaway execution...')

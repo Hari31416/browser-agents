@@ -435,7 +435,24 @@ export class AgentRuntime {
       ],
     })
 
+    let history = options.history
+    if (history === undefined && this.recordStore) {
+      try {
+        const storedMessages = await this.recordStore.getMessages(this.chatId)
+        history = storedMessages.flatMap(message =>
+          message.id !== options.currentMessageId &&
+          (message.role === 'user' || message.role === 'assistant')
+            ? [{ role: message.role, content: message.content ?? '' }]
+            : [],
+        )
+      } catch (err) {
+        console.warn('Failed to load chat history:', err)
+        history = []
+      }
+    }
+
     const initialMessages: Array<{ role: string; content: string }> = [
+      ...(history ?? []).map(message => ({ role: message.role, content: message.content })),
       { role: 'user', content: prompt },
     ]
 
