@@ -24,6 +24,8 @@
     "test": "node test/node-context.test.mjs && node test/agent-runtime.test.mjs"
   },
   "dependencies": {
+    "@browser-agents/python": "workspace:*",
+    "@browser-agents/workspace": "workspace:*",
     "@langchain/core": "1.3.2",
     "@langchain/langgraph": "1.6.0",
     "@noble/hashes": "2.0.1",
