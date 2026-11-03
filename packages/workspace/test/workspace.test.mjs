@@ -153,3 +153,37 @@ assert.equal(await wsA.readFile('notes/report.txt'), null)
 assert.equal((await wsA.listFiles()).length, 0)
 
 console.log('Workspace file operations and isolation tests passed successfully!')
+
+// Large binary reads and archive listing must not spread bytes as function args.
+{
+  const largeManager = new WorkspaceManager({
+    limits: {
+      maxFileBytes: 2 * 1024 * 1024,
+      maxWorkspaceBytes: 3 * 1024 * 1024,
+    },
+  })
+  const largeChat = await largeManager.createChat('Large Binary Chat')
+  const largeWorkspace = largeManager.getWorkspace(largeChat.id)
+  const largeBytes = Uint8Array.from({ length: 1024 * 1024 + 31 }, (_, index) => index % 256)
+  await largeWorkspace.writeFile('housing_plots.png', largeBytes)
+
+  const largeFile = await largeWorkspace.readFile('housing_plots.png')
+  assert.ok(largeFile)
+  assert.equal(largeFile.encoding, 'base64')
+  assert.deepEqual(Uint8Array.from(atob(largeFile.content), char => char.charCodeAt(0)), largeBytes)
+
+  const listedFiles = await largeWorkspace.listFiles()
+  assert.equal(listedFiles.length, 1)
+  assert.equal(listedFiles[0].content, largeFile.content)
+  const exportedFile = await largeWorkspace.exportFile('housing_plots.png')
+  assert.deepEqual(exportedFile.data, largeBytes)
+
+  const archive = await largeManager.exportChat(largeChat.id)
+  assert.equal(archive.files.length, 1)
+  assert.equal(archive.files[0].content, largeFile.content)
+  assert.deepEqual(
+    Uint8Array.from(atob(archive.files[0].content), char => char.charCodeAt(0)),
+    largeBytes,
+  )
+}
+console.log('Large binary read, list, and export checks passed!')

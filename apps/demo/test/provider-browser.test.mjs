@@ -87,6 +87,20 @@ try {
   let releaseDeleteCompletion
   const deleteResponseGate = new Promise(resolve => { releaseDeleteCompletion = resolve })
   let chatRequestCount = 0
+  const housingPngPythonCode = [
+    'import struct, zlib',
+    'width = height = 256',
+    'seed = 1',
+    'pixels = bytearray()',
+    'for _ in range(width * height * 3):',
+    '    seed = (1103515245 * seed + 12345) & 0x7fffffff',
+    '    pixels.append((seed >> 16) & 255)',
+    'raw = b"".join(b"\\x00" + pixels[y * width * 3:(y + 1) * width * 3] for y in range(height))',
+    'def chunk(kind, data):',
+    '    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)',
+    'png = b"\\x89PNG\\r\\n\\x1a\\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw, 0)) + chunk(b"IEND", b"")',
+    'open("housing_plots.png", "wb").write(png)',
+  ].join('\n')
   const sseResponse = events => `${events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('')}data: [DONE]\n\n`
   await chatPage.route('https://fixture.example/v1/chat/completions', async route => {
     chatRequestCount++
@@ -98,7 +112,7 @@ try {
         body: sseResponse([
           { choices: [{ delta: { tool_calls: [
             { index: 0, id: 'switch-plan', type: 'function', function: { name: 'write_todos', arguments: '{"todos":[{"content":"Finish chat A plan","status":"completed"}]}' } },
-            { index: 1, id: 'switch-python', type: 'function', function: { name: 'execute_python', arguments: '{"code":"open(\\\"a-result.txt\\\", \\\"w\\\").write(\\\"from chat A\\\")"}' } },
+            { index: 1, id: 'switch-python', type: 'function', function: { name: 'execute_python', arguments: JSON.stringify({ code: `open("a-result.txt", "w").write("from chat A")\n${housingPngPythonCode}` }) } },
           ] } }] },
           { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
         ]),
@@ -166,6 +180,12 @@ try {
     return composer && !composer.disabled
   }, null, { timeout: 20_000 })
   await welcomeChat.click()
+  await chatPage.locator('input[type="file"]').setInputFiles({
+    name: 'input.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('price,area\n100,1200\n'),
+  })
+  await chatPage.getByLabel('Workspace files').getByText('input.csv', { exact: true }).waitFor()
   await chatPage.getByLabel('Agent prompt input').fill('A pending prompt')
   const firstRequestSeen = chatPage.waitForRequest(request => request.url().endsWith('/chat/completions'), { timeout: 20_000 })
   await chatPage.getByRole('button', { name: 'Send message to agent' }).click()
@@ -189,6 +209,13 @@ try {
   await chatPage.getByText('A pending prompt', { exact: true }).waitFor()
   await chatPage.getByText('Finish chat A plan', { exact: true }).waitFor()
   await chatPage.getByText('a-result.txt', { exact: true }).waitFor()
+  const workspaceFiles = chatPage.getByLabel('Workspace files')
+  const modelFilesGroup = workspaceFiles.locator('div[class~="space-y-1.5"]').filter({ hasText: 'Model Generated' })
+  const userFilesGroup = workspaceFiles.locator('div[class~="space-y-1.5"]').filter({ hasText: 'User Uploaded' })
+  await modelFilesGroup.getByText('housing_plots.png', { exact: true }).waitFor()
+  await userFilesGroup.getByText('input.csv', { exact: true }).waitFor()
+  assert.equal(await workspaceFiles.getByText('Workspace Files (3)', { exact: true }).count(), 1)
+  assert.equal(await chatPage.getByRole('alert').count(), 0)
   await welcomeChat.click()
   assert.equal(await chatPage.getByText('A completed response', { exact: true }).count(), 1)
 
@@ -217,6 +244,24 @@ try {
   assert.equal(await chatPage.getByText('Same repeated answer.', { exact: true }).count(), 2)
   assert.equal(await chatPage.getByText('Repeated assistant segment', { exact: true }).count(), 2)
   assert.equal(await chatPage.getByText('Pre-tool no-final text', { exact: true }).count(), 1)
+  await modelFilesGroup.getByText('housing_plots.png', { exact: true }).waitFor()
+  await userFilesGroup.getByText('input.csv', { exact: true }).waitFor()
+  assert.equal(await chatPage.getByRole('alert').count(), 0)
+
+  const previewDialog = chatPage.getByRole('dialog').filter({ hasText: 'housing_plots.png' })
+  await workspaceFiles.getByRole('button', { name: 'Preview housing_plots.png', exact: true }).click()
+  const previewImage = previewDialog.locator('img[alt="housing_plots.png"]')
+  await previewImage.waitFor()
+  await previewImage.evaluate(image => image.decode())
+  const [housingDownload] = await Promise.all([
+    chatPage.waitForEvent('download'),
+    previewDialog.getByRole('button', { name: 'Download housing_plots.png', exact: true }).click(),
+  ])
+  const housingDownloadPath = await housingDownload.path()
+  const downloadedHousingPng = await readFile(housingDownloadPath)
+  assert.ok(downloadedHousingPng.length > 128 * 1024)
+  assert.deepEqual([...downloadedHousingPng.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
+  await previewDialog.getByRole('button', { name: 'Close preview modal' }).click()
 
   const [chatDownload] = await Promise.all([
     chatPage.waitForEvent('download'),
@@ -224,6 +269,9 @@ try {
   ])
   const archivePath = await chatDownload.path()
   const exportedChat = JSON.parse(await readFile(archivePath, 'utf8'))
+  const housingArchiveFile = exportedChat.files.find(file => file.path === 'housing_plots.png')
+  assert.ok(housingArchiveFile)
+  assert.deepEqual(Buffer.from(housingArchiveFile.content, 'base64'), downloadedHousingPng)
   assert.equal(exportedChat.messages.filter(message => message.content === 'repeat prompt').length, 2)
   assert.equal(exportedChat.messages.filter(message => message.content === 'Same repeated answer.').length, 2)
   assert.equal(exportedChat.messages.filter(message => message.content === 'Repeated assistant segment').length, 2)

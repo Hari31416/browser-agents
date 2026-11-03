@@ -42,6 +42,15 @@ export const DEFAULT_STORAGE_LIMITS: StorageLimits = {
   maxWorkspaceBytes: 200 * 1024 * 1024, // 200 MB
 }
 
+function bytesToBase64(data: Uint8Array): string {
+  const chunkSize = 0x8000
+  const binaryChunks: string[] = []
+  for (let offset = 0; offset < data.length; offset += chunkSize) {
+    binaryChunks.push(String.fromCharCode(...data.subarray(offset, offset + chunkSize)))
+  }
+  return btoa(binaryChunks.join(''))
+}
+
 export class ChatWorkspace implements WorkspaceStore {
   readonly chatId: string
   private fileStore: FileStore
@@ -178,7 +187,7 @@ export class ChatWorkspace implements WorkspaceStore {
 
     return {
       path: meta.path,
-      content: isText ? new TextDecoder().decode(data) : btoa(String.fromCharCode(...data)),
+      content: isText ? new TextDecoder().decode(data) : bytesToBase64(data),
       encoding: isText ? 'utf-8' : 'base64',
       mimeType: meta.mimeType,
       size: meta.size,

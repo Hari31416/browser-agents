@@ -70,38 +70,64 @@ export function WorkspaceFiles({
 
   const isModelFile = useCallback(
     (file: WorkspaceFile): boolean => {
+      if (file.source === 'model') return true
+      if (file.source === 'user') return false
+
       const cleanPath = file.path.replace(/^\//, '')
 
-      if (toolCalls && toolCalls.length > 0) {
-        for (const tc of toolCalls) {
-          if (tc.result && typeof tc.result === 'object') {
-            const res = tc.result as {
-              files?: Record<string, unknown>
-              artifacts?: Array<{ path: string }>
-            }
-            if (res.files && Object.keys(res.files).some(p => p.replace(/^\//, '') === cleanPath)) {
-              return true
-            }
-            if (res.artifacts && res.artifacts.some(a => a.path.replace(/^\//, '') === cleanPath)) {
-              return true
-            }
-          }
-          if (tc.name === 'write_file') {
-            try {
-              const args = typeof tc.args === 'string' ? JSON.parse(tc.args) : tc.args
-              const p = args?.file_path || args?.path
-              if (typeof p === 'string' && p.replace(/^\//, '') === cleanPath) {
-                return true
-              }
-            } catch {
-              // ignore json parse errors
-            }
+      for (const tc of toolCalls ?? []) {
+        let result: unknown = tc.result
+        if (typeof result === 'string') {
+          try {
+            result = JSON.parse(result)
+          } catch {
+            result = undefined
           }
         }
-        return false
+
+        if (result && typeof result === 'object') {
+          const res = result as {
+            files?: string[] | Record<string, unknown>
+            artifacts?: Array<string | { path?: string }>
+          }
+          const resultPaths = Array.isArray(res.files)
+            ? res.files.filter((path): path is string => typeof path === 'string')
+            : res.files && typeof res.files === 'object'
+              ? Object.keys(res.files)
+              : []
+          const artifactPaths = Array.isArray(res.artifacts)
+            ? res.artifacts.flatMap(artifact =>
+                typeof artifact === 'string'
+                  ? [artifact]
+                  : typeof artifact?.path === 'string'
+                    ? [artifact.path]
+                    : [],
+              )
+            : []
+          const resultIncludesFile = [...resultPaths, ...artifactPaths].some(
+            path => path.replace(/^\//, '') === cleanPath,
+          )
+          const isRecentPythonOutput = tc.name === 'execute_python' &&
+            Date.parse(file.updatedAt) >= Date.parse(tc.startedAt)
+          if (resultIncludesFile && (tc.name !== 'execute_python' || isRecentPythonOutput)) {
+            return true
+          }
+        }
+
+        if (tc.name === 'write_file') {
+          try {
+            const args = typeof tc.args === 'string' ? JSON.parse(tc.args) : tc.args
+            const path = args?.file_path || args?.path
+            if (typeof path === 'string' && path.replace(/^\//, '') === cleanPath) {
+              return true
+            }
+          } catch {
+            // Ignore malformed legacy tool arguments.
+          }
+        }
       }
 
-      return file.source === 'model'
+      return false
     },
     [toolCalls],
   )
