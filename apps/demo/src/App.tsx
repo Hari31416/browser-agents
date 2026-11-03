@@ -47,7 +47,11 @@ export function App() {
 
   // --- Workspace & Storage ---
   const workspaceManagerRef = useRef<WorkspaceManager>(new WorkspaceManager())
-  const pythonManagerRef = useRef<PythonSessionManagerImpl>(new PythonSessionManagerImpl())
+  const pythonManagerRef = useRef<PythonSessionManagerImpl>(
+    new PythonSessionManagerImpl({
+      assetBaseUrl: `${import.meta.env.BASE_URL}runtime`,
+    }),
+  )
   const modelClientRef = useRef<RelayClient | DirectClient | null>(null)
   const restoredConnectionRef = useRef(false)
   const activeRuntimeRef = useRef<AgentRuntime | null>(null)

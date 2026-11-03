@@ -265,6 +265,15 @@ docker compose --profile relay up -d # Launch with optional relay service
 make docker-down                   # Stop container stack
 ```
 
+### GitHub Pages Deployment
+
+The demo application is configured for automated deployment to GitHub Pages via GitHub Actions:
+
+- Workflow: `.github/workflows/deploy-pages.yml`
+- Triggers on push to `main` or manually via `workflow_dispatch`.
+- Builds monorepo packages and static client assets into `apps/demo/dist`.
+- Deploys static build artifacts via official GitHub Pages actions (`actions/configure-pages`, `actions/upload-pages-artifact`, `actions/deploy-pages`).
+
 ## Usage Examples
 
 ### Programmatic Agent Execution

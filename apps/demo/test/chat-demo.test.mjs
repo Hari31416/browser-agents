@@ -478,4 +478,82 @@ console.log('Test 8: User uploaded vs model generated file metadata tracking...'
   console.log('Passed Test 8!')
 }
 
+// 9. Markdown Component Rendering
+console.log('Test 9: Markdown renderer components verification...')
+{
+  const React = (await import('../node_modules/react/index.js')).default
+  const { renderToStaticMarkup } = await import('../node_modules/react-dom/server.browser.js')
+  const ReactMarkdown = (await import('../node_modules/react-markdown/index.js')).default
+  const remarkGfm = (await import('../node_modules/remark-gfm/index.js')).default
+
+  const sampleMarkdown = `
+# Header 1
+## Header 2
+
+Paragraph with **bold**, *italic*, and [safe link](https://example.com) and [unsafe link](javascript:alert(1)).
+
+- Bullet 1
+  - Nested Bullet 1.1
+  - Nested Bullet 1.2
+- Bullet 2
+
+1. Numbered 1
+2. Numbered 2
+   1. Sub numbered 2.1
+   2. Sub numbered 2.2
+
+| Name | Role | Score |
+| :--- | :---: | ---: |
+| Alice | Admin | 95 |
+| Bob | User | 82 |
+
+\`\`\`python
+def calculate():
+    return 42
+\`\`\`
+
+Inline \`code_snippet\` test.
+`
+
+  const html = renderToStaticMarkup(
+    React.createElement(
+      ReactMarkdown,
+      {
+        remarkPlugins: [remarkGfm],
+        urlTransform: url => sanitizeUrl(url) ?? '',
+      },
+      sampleMarkdown,
+    ),
+  )
+
+  // Verify headers
+  assert.ok(html.includes('<h1>Header 1</h1>'))
+  assert.ok(html.includes('<h2>Header 2</h2>'))
+
+  // Verify links & sanitization
+  assert.ok(html.includes('href="https://example.com"'))
+  assert.ok(!html.includes('javascript:alert(1)'))
+
+  // Verify unordered lists & nested lists
+  assert.ok(html.includes('<ul>'))
+  assert.ok(html.includes('<li>Bullet 1\n<ul>\n<li>Nested Bullet 1.1</li>'))
+
+  // Verify ordered lists & nested numbered lists
+  assert.ok(html.includes('<ol>'))
+  assert.ok(html.includes('<li>Numbered 1</li>'))
+  assert.ok(html.includes('<li>Sub numbered 2.1</li>'))
+
+  // Verify tables
+  assert.ok(html.includes('<table>'))
+  assert.ok(html.includes('>Name</th>'))
+  assert.ok(html.includes('>Alice</td>'))
+  assert.ok(html.includes('>Admin</td>'))
+
+  // Verify code block & inline code
+  assert.ok(html.includes('<pre><code class="language-python">def calculate():'))
+  assert.ok(html.includes('<code>code_snippet</code>'))
+
+  console.log('Passed Test 9!')
+}
+
 console.log('--- ALL PHASE 05 VERIFICATION TESTS PASSED SUCCESSFULLY! ---')
