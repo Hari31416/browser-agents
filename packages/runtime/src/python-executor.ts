@@ -26,6 +26,7 @@ export class SessionPythonExecutor implements PythonExecutor {
         stdout: result.stdout,
         stderr: result.stderr,
         files: result.files,
+        filesAreSnapshot: true,
         artifacts: result.artifacts,
         durationMs: result.durationMs ?? Date.now() - startedAt,
         error: result.error,

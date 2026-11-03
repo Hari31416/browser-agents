@@ -359,12 +359,14 @@ export class PythonSessionImpl implements PythonSession {
 
           const originalBytes = inputFiles['/' + normOutPath]
           if (!originalBytes || !areByteArraysEqual(originalBytes, outBytes)) {
+            const previousMeta = snapshot.files.find(file => file.path === normOutPath)
             stagedChanges.push({
               type: 'write',
               path: normOutPath,
               content: outBytes,
               encoding: 'binary',
               mimeType: getMimeType(normOutPath),
+              source: previousMeta ? previousMeta.source : 'model',
             })
           }
         }

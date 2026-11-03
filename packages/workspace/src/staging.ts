@@ -21,7 +21,7 @@ export interface WorkspaceStorageTarget {
   writeFileBytes(
     path: string,
     data: Uint8Array,
-    options?: { expectedVersion?: number; mimeType?: string },
+    options?: { expectedVersion?: number; mimeType?: string; source?: 'user' | 'model' },
   ): Promise<FileMetadata>
   deleteFile(path: string, options?: { expectedVersion?: number }): Promise<boolean>
   readFileBytes(path: string): Promise<Uint8Array | null>
@@ -148,6 +148,7 @@ export class StagingManager {
           const newMeta = await target.writeFileBytes(change.path, byteData, {
             expectedVersion: previousMeta?.version,
             mimeType: change.mimeType,
+            source: change.source,
           })
           committed.push(change.path)
           revisions[change.path] = newMeta.version

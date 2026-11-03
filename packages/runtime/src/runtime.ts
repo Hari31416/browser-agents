@@ -1,7 +1,9 @@
-import type { ChatWorkspace, RecordStore } from '@browser-agents/workspace'
+import { getMimeType, type ChatWorkspace, type RecordStore } from '@browser-agents/workspace'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
-import { createBrowserDeepAgent, StateBackend } from './agent.js'
+import { ToolMessage } from '@langchain/core/messages'
+import { Command, StateSchema } from '@langchain/langgraph'
+import { createBrowserDeepAgent, filesValue, StateBackend } from './agent.js'
 import {
   ConcurrentRunError,
   ContextLimitExceededError,
@@ -22,11 +24,49 @@ import type {
   AgentRunSummary,
   AgentRuntimeOptions,
   FileRecord,
+  PythonExecutionOutput,
   PythonExecutor,
   RuntimeLimits,
   TodoItem,
   ToolExecutionSummary,
 } from './types.js'
+
+function fileBytes(record: FileRecord): Uint8Array {
+  const content = record.content as string | Uint8Array
+  if (content instanceof Uint8Array) return content
+  if (record.encoding === 'base64') {
+    return Uint8Array.from(atob(content), char => char.charCodeAt(0))
+  }
+  return new TextEncoder().encode(content)
+}
+
+function fileRecord(data: Uint8Array, mimeType: string): FileRecord {
+  const text = mimeType.startsWith('text/') || mimeType === 'application/json'
+  const now = new Date().toISOString()
+  let binary = ''
+  if (!text) {
+    for (let offset = 0; offset < data.length; offset += 0x8000) {
+      binary += String.fromCharCode(...data.subarray(offset, offset + 0x8000))
+    }
+  }
+  return {
+    content: text ? new TextDecoder().decode(data) : btoa(binary),
+    mimeType,
+    encoding: text ? 'utf-8' : 'base64',
+    created_at: now,
+    modified_at: now,
+  }
+}
+
+function cloneFileState(files: Record<string, FileRecord | null>): Record<string, FileRecord> {
+  return Object.fromEntries(
+    Object.entries(files).flatMap(([path, record]) => record ? [[path, { ...record }]] : []),
+  )
+}
+
+function sameFile(a: FileRecord | null | undefined, b: FileRecord | null | undefined): boolean {
+  return a === b || (!!a && !!b && a.content === b.content && a.encoding === b.encoding && a.mimeType === b.mimeType)
+}
 
 export const DEFAULT_LIMITS: Required<RuntimeLimits> = {
   maxSteps: 30,
@@ -179,13 +219,17 @@ export class AgentRuntime {
 
     // Load initial files from workspace if present
     const initialFiles: Record<string, FileRecord> = { ...(options.initialFiles ?? {}) }
-    const initialFileSources = new Map<string, 'user' | 'model' | undefined>()
+    const trackedVersions = new Map<string, number>()
+    const trackedSources = new Map<string, 'user' | 'model'>()
     if (this.workspace) {
       try {
         const wsFiles = await this.workspace.listFiles()
         const now = new Date().toISOString()
         for (const f of wsFiles) {
           const normKey = f.path.startsWith('/') ? f.path : '/' + f.path
+          const path = f.path.replace(/^\//, '')
+          if (f.version !== undefined) trackedVersions.set(path, f.version)
+          if (f.source) trackedSources.set(path, f.source)
           initialFiles[normKey] = {
             content: f.content,
             encoding: f.encoding,
@@ -193,7 +237,6 @@ export class AgentRuntime {
             created_at: f.createdAt || now,
             modified_at: f.updatedAt || now,
           }
-          initialFileSources.set(f.path.replace(/^\//, ''), f.source)
         }
       } catch (err) {
         console.warn('Failed to load initial workspace files:', err)
@@ -203,6 +246,68 @@ export class AgentRuntime {
     // Prepare custom tools
     const customTools: unknown[] = []
     const fileMutex = new AsyncMutex()
+    const pythonSyncMutex = new AsyncMutex()
+    const pythonOutputRef: { current?: PythonExecutionOutput } = {}
+    const pythonStateOverlay = new Map<string, { base: FileRecord | null | undefined; value: FileRecord | null }>()
+    let pythonBatchId: string | undefined
+    let synchronizedGraphFiles: Record<string, FileRecord> = cloneFileState(initialFiles)
+
+    const syncGraphFilesToWorkspace = async (graphFiles: Record<string, FileRecord | null>) => {
+      if (!this.workspace) return
+      const normGraph = new Map(
+        Object.entries(graphFiles).flatMap(([path, record]) => record ? [[path.replace(/^\//, ''), record] as const] : []),
+      )
+      const priorPaths = new Set(Object.keys(synchronizedGraphFiles).map(path => path.replace(/^\//, '')))
+      const graphPaths = new Set(normGraph.keys())
+      const changes: Array<{ type: 'write' | 'delete'; path: string; content?: Uint8Array; encoding?: 'binary'; mimeType?: string; source?: 'user' | 'model' }> = []
+
+      for (const path of priorPaths) {
+        if (!graphPaths.has(path)) changes.push({ type: 'delete', path })
+      }
+      for (const [path, record] of normGraph) {
+        const prior = synchronizedGraphFiles['/' + path] ?? synchronizedGraphFiles[path]
+        if (prior && prior.content === record.content && prior.encoding === record.encoding && prior.mimeType === record.mimeType) continue
+        changes.push({
+          type: 'write',
+          path,
+          content: fileBytes(record),
+          encoding: 'binary',
+          mimeType: record.mimeType,
+          source: trackedSources.get(path) ?? 'model',
+        })
+      }
+      if (changes.length === 0) return
+
+      const current = await this.workspace.createExecutionSnapshot()
+      for (const change of changes) {
+        const expected = trackedVersions.get(change.path)
+        const currentRevision = current.baseRevisions[change.path]
+        if (expected !== currentRevision) {
+          throw new Error(`Workspace conflict for '${change.path}': expected revision ${expected ?? 'missing'}, found ${currentRevision ?? 'missing'}`)
+        }
+      }
+      const staging = this.workspace.stageChanges(current, changes)
+      const committed = await this.workspace.commitStagedChanges(staging)
+      for (const change of changes) {
+        const revision = committed.revisions[change.path]
+        if (revision === undefined) trackedVersions.delete(change.path)
+        else {
+          trackedVersions.set(change.path, revision)
+          if (change.type === 'write') trackedSources.set(change.path, change.source ?? 'model')
+        }
+        if (change.type === 'delete') trackedSources.delete(change.path)
+      }
+      synchronizedGraphFiles = cloneFileState(graphFiles)
+    }
+
+    const refreshTrackedVersions = async () => {
+      if (!this.workspace) return
+      const snapshot = await this.workspace.createExecutionSnapshot()
+      trackedVersions.clear()
+      trackedSources.clear()
+      for (const [path, version] of Object.entries(snapshot.baseRevisions)) trackedVersions.set(path, version)
+      for (const file of snapshot.files) if (file.source) trackedSources.set(file.path, file.source)
+    }
 
     if (this.pythonExecutor) {
       const pyTool = createPythonTool({
@@ -210,27 +315,7 @@ export class AgentRuntime {
         mutex: fileMutex,
         limits: this.limits,
         signal: abortController.signal,
-        onFileGenerated: async (path, data, mimeType) => {
-          if (this.workspace) {
-            try {
-              await this.workspace.writeFile(path, data, { mimeType, source: 'model' })
-            } catch (err) {
-              console.warn(`Failed to commit generated Python file '${path}' to workspace:`, err)
-            }
-          }
-          // Also update files in state
-          const normKey = path.startsWith('/') ? path : '/' + path
-          const isText = mimeType.startsWith('text/') || mimeType === 'application/json'
-          const content = isText ? new TextDecoder().decode(data) : btoa(String.fromCharCode(...data))
-          const now = new Date().toISOString()
-          initialFiles[normKey] = {
-            content,
-            mimeType,
-            encoding: isText ? 'utf-8' : 'base64',
-            created_at: now,
-            modified_at: now,
-          }
-        },
+        onExecutionComplete: result => { pythonOutputRef.current = result },
       })
       customTools.push(pyTool)
     }
@@ -267,6 +352,87 @@ export class AgentRuntime {
       backend: new StateBackend(),
       tools: customTools,
       systemPrompt: effectiveSystemPrompt,
+      middleware: [
+        {
+          name: 'PythonWorkspaceSync',
+          stateSchema: new StateSchema({ files: filesValue }),
+          wrapToolCall: async (
+            request: {
+              toolCall: { name: string; id?: string }
+              state: { files?: Record<string, FileRecord | null>; messages?: BaseMessage[] }
+            },
+            handler: (request: unknown) => Promise<ToolMessage | Command>,
+          ) => {
+            if (request.toolCall.name !== 'execute_python') return handler(request)
+
+            return pythonSyncMutex.runExclusive(async () => {
+              const latestAiMessage = [...(request.state.messages ?? [])]
+                .reverse()
+                .find(message => message._getType?.() === 'ai')
+              const batchId = latestAiMessage &&
+                ((latestAiMessage as { tool_calls?: Array<{ name: string }> }).tool_calls ?? [])
+                  .some(call => call.name === 'execute_python')
+                ? latestAiMessage.id
+                : undefined
+              if (batchId !== pythonBatchId) {
+                pythonStateOverlay.clear()
+                pythonBatchId = batchId
+              }
+
+              const incomingFiles = request.state.files ?? initialFiles
+              const currentFiles: Record<string, FileRecord | null> = { ...incomingFiles }
+              for (const [path, update] of pythonStateOverlay) {
+                if (sameFile(incomingFiles[path], update.base)) currentFiles[path] = update.value
+                else pythonStateOverlay.delete(path)
+              }
+              await syncGraphFilesToWorkspace(currentFiles)
+
+              pythonOutputRef.current = undefined
+              const result = await handler(request)
+              const output = pythonOutputRef.current as PythonExecutionOutput | undefined
+              if (!output?.ok || !output.files) return result
+
+              let nextFiles: Record<string, FileRecord | null>
+              if (output.filesAreSnapshot) {
+                nextFiles = {}
+                for (const [path, data] of Object.entries(output.files)) {
+                  nextFiles[path.startsWith('/') ? path : '/' + path] = fileRecord(data, getMimeType(path))
+                }
+                for (const path of Object.keys(currentFiles)) {
+                  if (!nextFiles[path] && currentFiles[path]) nextFiles[path] = null
+                }
+              } else {
+                nextFiles = { ...currentFiles }
+                for (const [path, data] of Object.entries(output.files)) {
+                  nextFiles[path.startsWith('/') ? path : '/' + path] = fileRecord(data, getMimeType(path))
+                }
+              }
+
+              for (const [path, value] of Object.entries(nextFiles)) {
+                if (sameFile(value, currentFiles[path])) continue
+                const prior = pythonStateOverlay.get(path)
+                pythonStateOverlay.set(path, { base: prior?.base ?? incomingFiles[path], value })
+              }
+              if (output.filesAreSnapshot) {
+                await refreshTrackedVersions()
+                synchronizedGraphFiles = cloneFileState(nextFiles)
+              } else {
+                await syncGraphFilesToWorkspace(nextFiles)
+              }
+
+              if (!(result instanceof ToolMessage)) return result
+              const changed = Object.fromEntries(
+                Object.entries(nextFiles).filter(([path, value]) => {
+                  const previous = currentFiles[path]
+                  if (value === null) return previous !== undefined && previous !== null
+                  return !previous || previous.content !== value.content || previous.encoding !== value.encoding || previous.mimeType !== value.mimeType
+                }),
+              )
+              return new Command({ update: { files: changed, messages: [result] } })
+            })
+          },
+        },
+      ],
     })
 
     const initialMessages: Array<{ role: string; content: string }> = [
@@ -492,33 +658,9 @@ export class AgentRuntime {
         }
       }
 
-      // Persist final files to workspace if workspace exists
-      if (this.workspace && lastState.files) {
-        for (const [filePath, fileData] of Object.entries(lastState.files)) {
-          try {
-            const normKey = filePath.startsWith('/') ? filePath : '/' + filePath
-            const cleanPath = filePath.startsWith('/') ? filePath.slice(1) : filePath
-            const wasInitial = Boolean(initialFiles[normKey])
-
-            // If it was already in initialFiles and content hasn't changed, skip re-writing
-            if (wasInitial && initialFiles[normKey].content === fileData.content) {
-              continue
-            }
-
-            const source = wasInitial
-              ? (initialFileSources.get(cleanPath) ?? 'user')
-              : 'model'
-
-            await this.workspace.writeFile(cleanPath, fileData.content, {
-              encoding: fileData.encoding === 'base64' ? 'binary' : 'utf-8',
-              mimeType: fileData.mimeType,
-              source,
-            })
-          } catch (err) {
-            console.warn(`Failed to persist file '${filePath}' to workspace:`, err)
-          }
-        }
-      }
+      // Flush any remaining graph file edits with revision checks. Python updates
+      // have already synchronized their complete or partial changes above.
+      if (lastState.files) await syncGraphFilesToWorkspace(lastState.files)
 
       // Persist user and assistant messages to recordStore only if not already recorded by caller
       if (this.recordStore) {

@@ -123,6 +123,7 @@ export interface StagedFileChange {
   content?: Uint8Array | string
   encoding?: 'utf-8' | 'binary'
   mimeType?: string
+  source?: 'user' | 'model'
 }
 
 export interface ExecutionSnapshot {

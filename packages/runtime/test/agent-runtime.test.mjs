@@ -11,6 +11,7 @@ import {
   ConcurrentRunError,
   ContextLimitExceededError,
   MockPythonExecutor,
+  SessionPythonExecutor,
   ScriptedChatModel,
   StepLimitExceededError,
   capOutput,
@@ -237,6 +238,124 @@ console.log('Test 2: Second compatible endpoint without changing the loop...')
   assert.equal(written.content, 'Output from Model B')
 }
 console.log('Passed Test 2!')
+
+// 2a. Graph files and Python share synchronized, version-checked workspace state
+console.log('Test 2a: Python sees graph writes and graph reads Python changes...')
+{
+  const { workspace } = createTestWorkspace('chat-python-graph-sync')
+  await workspace.writeFile('/data.txt', 'old', { mimeType: 'text/plain' })
+  await workspace.writeFile('/untouched.txt', 'preserve me', { mimeType: 'text/plain' })
+  const readResults = []
+  let pythonCalls = 0
+  const pythonExecutor = new MockPythonExecutor(async () => {
+    pythonCalls += 1
+    if (pythonCalls === 1) {
+      const graphWrite = await workspace.readFile('/fresh.txt')
+      assert.equal(graphWrite?.content, 'hello', 'Graph writes must be in Python workspace before execution')
+      return {
+        ok: true,
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        files: {
+          '/data.txt': new TextEncoder().encode('new'),
+          '/image.png': Uint8Array.from([0, 1, 2, 255]),
+        },
+      }
+    }
+    assert.equal((await workspace.readFile('/data.txt'))?.content, 'old', 'Python must see a graph edit that restores the original content')
+    return { ok: true, exitCode: 0, stdout: '', stderr: '', files: { '/final.txt': new TextEncoder().encode('complete') } }
+  })
+  const model = new ScriptedChatModel([
+    { toolCalls: [{ name: 'write_file', args: { file_path: 'fresh.txt', content: 'hello' }, id: 'sync-write' }] },
+    { toolCalls: [{ name: 'execute_python', args: { code: 'print("updated")' }, id: 'sync-python' }] },
+    { toolCalls: [{ name: 'read_file', args: { file_path: 'data.txt' }, id: 'sync-read-new' }] },
+    { toolCalls: [{ name: 'edit_file', args: { file_path: 'data.txt', old_string: 'new', new_string: 'old' }, id: 'sync-edit' }] },
+    { toolCalls: [{ name: 'execute_python', args: { code: 'print("verify edit")' }, id: 'sync-python-2' }] },
+    { toolCalls: [{ name: 'read_file', args: { file_path: 'data.txt' }, id: 'sync-read-old' }] },
+    { toolCalls: [{ name: 'read_file', args: { file_path: 'data.txt' }, id: 'sync-read' }] },
+    { text: 'Finished.' },
+  ])
+  const runtime = new AgentRuntime({
+    chatId: 'chat-python-graph-sync',
+    model,
+    workspace,
+    pythonExecutor,
+    onEvent: event => {
+      if (event.type === 'tool:result' && event.name === 'read_file') readResults.push(event.result)
+    },
+  })
+  const result = await runtime.run('Write a file, update data with Python, then read it')
+  assert.equal(result.ok, true)
+  assert.ok(JSON.stringify(readResults).includes('new'), 'read_file must observe Python output')
+  assert.ok(JSON.stringify(readResults).includes('old'), 'read_file must observe the later reverting graph edit')
+  assert.equal((await workspace.readFile('/data.txt'))?.content, 'old', 'Final persistence must retain the reverting graph edit')
+  assert.equal((await workspace.readFile('/fresh.txt'))?.content, 'hello')
+  assert.deepEqual(Array.from((await workspace.readFileBytes('/image.png')).data), [0, 1, 2, 255])
+  assert.equal((await workspace.statFile('/image.png'))?.source, 'model')
+  assert.equal((await workspace.readFile('/final.txt'))?.content, 'complete')
+  assert.equal((await workspace.readFile('/untouched.txt'))?.content, 'preserve me')
+}
+console.log('Passed Test 2a!')
+
+// 2b. Complete Python snapshots propagate deletions into graph state
+console.log('Test 2b: Python snapshot deletes are visible to graph tools...')
+{
+  const { workspace } = createTestWorkspace('chat-python-delete-sync')
+  await workspace.writeFile('/gone.txt', 'remove me', { mimeType: 'text/plain' })
+  const pythonSession = {
+    chatId: 'chat-python-delete-sync',
+    isReady: true,
+    isTerminated: false,
+    initialize: async () => {},
+    run: async () => {
+      await workspace.deleteFile('/gone.txt')
+      return { ok: true, exitCode: 0, stdout: '', stderr: '', files: {} }
+    },
+    reset: async () => {},
+    terminate: async () => {},
+  }
+  const pythonExecutor = new SessionPythonExecutor(pythonSession)
+  const model = new ScriptedChatModel([
+    { toolCalls: [{ name: 'execute_python', args: { code: 'import os; os.remove("gone.txt")' }, id: 'delete-python' }] },
+    { toolCalls: [{ name: 'read_file', args: { file_path: 'gone.txt' }, id: 'delete-read' }] },
+    { text: 'Finished.' },
+  ])
+  const runtime = new AgentRuntime({ chatId: 'chat-python-delete-sync', model, workspace, pythonExecutor })
+  const result = await runtime.run('Delete the file using Python and verify it is gone')
+  assert.equal(result.ok, true)
+  assert.equal(await workspace.readFile('/gone.txt'), null)
+  assert.ok(result.summary.toolCalls.find(call => call.id === 'delete-read'))
+}
+console.log('Passed Test 2b!')
+
+// 2c. Parallel Python calls preserve each other's generated files
+console.log('Test 2c: Parallel Python calls share the latest synchronized file state...')
+{
+  const { workspace } = createTestWorkspace('chat-python-parallel-sync')
+  let calls = 0
+  const pythonExecutor = new MockPythonExecutor(async () => {
+    calls += 1
+    if (calls === 2) {
+      assert.equal((await workspace.readFile('/parallel-1.txt'))?.content, 'first')
+      return { ok: true, exitCode: 0, stdout: '', stderr: '', files: { '/parallel-2.txt': new TextEncoder().encode('second') } }
+    }
+    return { ok: true, exitCode: 0, stdout: '', stderr: '', files: { '/parallel-1.txt': new TextEncoder().encode('first') } }
+  })
+  const model = new ScriptedChatModel([
+    { toolCalls: [
+      { name: 'execute_python', args: { code: 'print("first")' }, id: 'parallel-python-1' },
+      { name: 'execute_python', args: { code: 'print("second")' }, id: 'parallel-python-2' },
+    ] },
+    { text: 'Both finished.' },
+  ])
+  const runtime = new AgentRuntime({ chatId: 'chat-python-parallel-sync', model, workspace, pythonExecutor })
+  const result = await runtime.run('Run both Python operations')
+  assert.equal(result.ok, true)
+  assert.equal((await workspace.readFile('/parallel-1.txt'))?.content, 'first')
+  assert.equal((await workspace.readFile('/parallel-2.txt'))?.content, 'second')
+}
+console.log('Passed Test 2c!')
 
 // 3. Step limit stop
 console.log('Test 3: Step limit stops runaway execution...')

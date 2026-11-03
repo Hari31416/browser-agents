@@ -2,7 +2,7 @@ import { normalizePath } from '@browser-agents/workspace'
 import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { ToolExecutionError } from './errors.js'
-import type { PythonExecutor, RuntimeLimits } from './types.js'
+import type { PythonExecutionOutput, PythonExecutor, RuntimeLimits } from './types.js'
 
 export class AsyncMutex {
   private locked = false
@@ -29,6 +29,7 @@ export interface PythonToolContext {
   limits?: RuntimeLimits
   signal?: AbortSignal
   onFileGenerated?: (path: string, data: Uint8Array, mimeType: string) => Promise<void> | void
+  onExecutionComplete?: (result: PythonExecutionOutput) => void
 }
 
 export function capOutput(text: string, maxChars = 64_000): string {
@@ -54,6 +55,7 @@ export function createPythonTool(context: PythonToolContext) {
             timeoutMs: context.limits?.timeoutMs,
             maxOutputChars,
           })
+          context.onExecutionComplete?.(result)
 
           const cappedStdout = capOutput(result.stdout, maxOutputChars)
           const cappedStderr = capOutput(result.stderr, maxOutputChars)

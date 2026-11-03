@@ -15,7 +15,7 @@ if (typeof globalThis.Buffer === 'undefined') {
   ;(globalThis as unknown as { Buffer: typeof Buffer }).Buffer = Buffer
 }
 
-const { createDeepAgent, StateBackend } = await import('deepagents/browser')
+const { createDeepAgent, StateBackend, filesValue } = await import('deepagents/browser')
 const { createMiddleware, todoListMiddleware } = await import('langchain')
 const { ToolMessage } = await import('@langchain/core/messages')
 
@@ -180,4 +180,4 @@ export function createBrowserDeepAgent(
   return createDeepAgent(params as never)
 }
 
-export { StateBackend }
+export { StateBackend, filesValue }

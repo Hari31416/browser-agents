@@ -413,7 +413,6 @@ export function App() {
       pythonExecutor = new MockPythonExecutor(async () => {
         setPythonState({ status: 'running', packages: ['numpy', 'pandas', 'matplotlib'] })
         const sampleOut = 'Dataset rows: 100\nColumns: 4\nMean calculation: 42.5\n'
-        await ws.writeFile(fixtureResponseFile, sampleOut, { mimeType: 'text/plain', source: 'model' })
         setPythonState({ status: 'ready', packages: ['numpy', 'pandas', 'matplotlib'] })
         return {
           ok: true,

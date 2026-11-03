@@ -398,6 +398,7 @@ export class ChatWorkspace implements WorkspaceStore {
           this._writeFile(path, data, {
             expectedVersion: options?.expectedVersion,
             mimeType: options?.mimeType,
+            source: options?.source,
           }),
         deleteFile: (path, options) => this._deleteFile(path, options),
         readFileBytes: async path => {

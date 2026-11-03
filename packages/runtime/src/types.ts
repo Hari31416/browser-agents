@@ -284,6 +284,8 @@ export interface PythonExecutionOutput {
   stdout: string
   stderr: string
   files?: Record<string, Uint8Array>
+  /** True when `files` is the executor's complete resulting workspace snapshot. */
+  filesAreSnapshot?: boolean
   artifacts?: Array<{
     path: string
     mimeType: string
