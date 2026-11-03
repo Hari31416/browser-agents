@@ -171,16 +171,7 @@ export function App() {
         if ((chatDataRevisionRef.current.get(chatId) ?? 0) === revision) break
       }
       const [msgs, plan, rList, tcList, wsFiles] = loaded
-      // Deduplicate messages from historical store
-      const cleanMsgs: ChatMessageRecord[] = []
-      for (const m of msgs) {
-        const content = (m.content || '').trim()
-        if (cleanMsgs.some(c => c.role === m.role && (c.content || '').trim() === content)) {
-          continue
-        }
-        cleanMsgs.push(m)
-      }
-      setMessages(cleanMsgs)
+      setMessages(msgs)
       setPlanItems(plan)
       setRuns(rList)
       setToolCalls(tcList)
@@ -726,25 +717,24 @@ export function App() {
         const result = await runtime.run(promptText, {
           history: conversationHistory,
           currentMessageId: userMsgId,
+          persistMessages: false,
           signal: runAbortController.signal,
         })
 
-        // Add assistant response to messages for remaining text
-        const remainingText = currentTurnText.trim() || result.summary.outputText
+        // Earlier assistant segments are saved at tool boundaries. Save only the
+        // text streamed since the last tool call, not the run's aggregate output.
+        const remainingText = currentTurnText.trim()
         if (remainingText && result.state !== 'cancelled') {
-          const existingMessages = await wm.getMessages(runChatId)
-          if (!existingMessages.some(m => m.role === 'assistant' && (m.content || '').trim() === remainingText.trim())) {
-            const assistantMsg: ChatMessageRecord = {
-              id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
-              chatId: runChatId,
-              role: 'assistant',
-              content: remainingText,
-              createdAt: new Date().toISOString(),
-            }
-            await wm.addMessage(assistantMsg)
-            touchChatData(runChatId)
-            if (selectedChatIdRef.current === runChatId) setMessages(prev => [...prev, assistantMsg])
+          const assistantMsg: ChatMessageRecord = {
+            id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
+            chatId: runChatId,
+            role: 'assistant',
+            content: remainingText,
+            createdAt: new Date().toISOString(),
           }
+          await wm.addMessage(assistantMsg)
+          touchChatData(runChatId)
+          if (selectedChatIdRef.current === runChatId) setMessages(prev => [...prev, assistantMsg])
         }
 
         // Refresh files and tool calls

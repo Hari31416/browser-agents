@@ -679,31 +679,46 @@ export class AgentRuntime {
       // have already synchronized their complete or partial changes above.
       if (lastState.files) await syncGraphFilesToWorkspace(lastState.files)
 
-      // Persist user and assistant messages to recordStore only if not already recorded by caller
-      if (this.recordStore) {
+      // Persist each run independently. A caller-owned current turn is recognized
+      // only by its stable message ID, never by matching its text.
+      if (this.recordStore && options.persistMessages !== false) {
         try {
           const existingMsgs = await this.recordStore.getMessages(this.chatId)
-          const alreadyRecorded = existingMsgs.some(
-            m => m.role === 'user' && (m.content || '').trim() === prompt.trim(),
+          const callerOwnedMessage = options.currentMessageId
+            ? existingMsgs.find(m => m.id === options.currentMessageId && m.role === 'user')
+            : undefined
+          const latestExistingTimestamp = existingMsgs.reduce((latest, message) => {
+            const timestamp = Date.parse(message.createdAt)
+            return Number.isFinite(timestamp) ? Math.max(latest, timestamp) : latest
+          }, 0)
+          const callerMessageTimestamp = callerOwnedMessage
+            ? Date.parse(callerOwnedMessage.createdAt)
+            : Number.NaN
+          const userTimestamp = Number.isFinite(callerMessageTimestamp)
+            ? callerMessageTimestamp
+            : Math.max(startTime, latestExistingTimestamp + 1)
+          const assistantTimestamp = Math.max(
+            Date.now(),
+            userTimestamp + 1,
+            latestExistingTimestamp + 1,
           )
-          if (!alreadyRecorded) {
-            const now = new Date().toISOString()
+          if (!callerOwnedMessage) {
             await this.recordStore.addMessage({
               id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
               chatId: this.chatId,
               role: 'user',
               content: prompt,
-              createdAt: now,
+              createdAt: new Date(userTimestamp).toISOString(),
             })
-            if (accumulatedText) {
-              await this.recordStore.addMessage({
-                id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
-                chatId: this.chatId,
-                role: 'assistant',
-                content: accumulatedText,
-                createdAt: now,
-              })
-            }
+          }
+          if (accumulatedText) {
+            await this.recordStore.addMessage({
+              id: `msg_${Math.random().toString(36).slice(2)}_${Date.now()}`,
+              chatId: this.chatId,
+              role: 'assistant',
+              content: accumulatedText,
+              createdAt: new Date(assistantTimestamp).toISOString(),
+            })
           }
         } catch (err) {
           console.warn('Failed to record chat messages:', err)

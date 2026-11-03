@@ -315,6 +315,8 @@ export interface AgentRuntimeOptions {
 export interface AgentRunOptions {
   signal?: AbortSignal
   initialFiles?: Record<string, FileRecord>
+  /** When false, the caller owns user/assistant message persistence for this run. Defaults to true. */
+  persistMessages?: boolean
   /** Earlier conversational turns. When provided, overrides loading from recordStore. */
   history?: Array<{ role: 'user' | 'assistant'; content: string }>
   /** Exclude a caller-owned current message from recordStore-loaded history by identity. */

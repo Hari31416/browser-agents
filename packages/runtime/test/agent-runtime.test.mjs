@@ -402,6 +402,7 @@ console.log('Passed stored history and reload checks!')
   await recordStore.addMessage({ id: 'current-id', chatId: 'chat-history-explicit', role: 'user', content: 'repeat', createdAt: '2026-01-01T00:00:02.000Z' })
   const model = new ScriptedChatModel([{ text: 'Second reply.' }])
   const runtime = new AgentRuntime({ chatId: 'chat-history-explicit', model, recordStore })
+  const firstRunStartedAt = Date.now()
   await runtime.run('repeat', {
     history: [
       { role: 'user', content: 'repeat' },
@@ -420,10 +421,57 @@ console.log('Passed stored history and reload checks!')
   assert.deepEqual(mapObservedConversation(idFilteredModel.observedMessages[0]), [
     { role: 'user', content: 'repeat' },
     { role: 'assistant', content: 'first reply' },
+    { role: 'assistant', content: 'Second reply.' },
     { role: 'user', content: 'repeat' },
   ])
+  const persisted = await recordStore.getMessages('chat-history-explicit')
+  assert.equal(persisted.filter(message => message.role === 'user').length, 2)
+  assert.equal(persisted.filter(message => message.role === 'assistant').length, 3)
+  const callerMessage = persisted.find(message => message.id === 'current-id')
+  const callerOwnedReplies = persisted.filter(
+    message => message.role === 'assistant' && message.content !== 'first reply',
+  )
+  assert.ok(callerOwnedReplies.every(message => Date.parse(message.createdAt) > Date.parse(callerMessage.createdAt)))
+  assert.ok(callerOwnedReplies.every(message => Date.parse(message.createdAt) >= firstRunStartedAt))
+  assert.ok(persisted.every((message, index) => index === 0 ||
+    Date.parse(message.createdAt) > Date.parse(persisted[index - 1].createdAt)))
 }
 console.log('Passed caller-owned history checks!')
+
+// Default persistence records every turn even when prompts and answers repeat.
+{
+  const { recordStore } = createTestWorkspace('chat-history-identical-turns')
+  const model = new ScriptedChatModel([{ text: 'Same answer.' }, { text: 'Same answer.' }])
+  const runtime = new AgentRuntime({ chatId: 'chat-history-identical-turns', model, recordStore })
+  assert.equal((await runtime.run('repeat this')).ok, true)
+  assert.equal((await runtime.run('repeat this')).ok, true)
+
+  const messages = await recordStore.getMessages('chat-history-identical-turns')
+  assert.deepEqual(messages.map(({ role, content }) => ({ role, content })), [
+    { role: 'user', content: 'repeat this' },
+    { role: 'assistant', content: 'Same answer.' },
+    { role: 'user', content: 'repeat this' },
+    { role: 'assistant', content: 'Same answer.' },
+  ])
+  const timestamps = messages.map(message => Date.parse(message.createdAt))
+  assert.ok(timestamps.every((timestamp, index) => index === 0 || timestamp > timestamps[index - 1]))
+  assert.deepEqual(mapObservedConversation(model.observedMessages[1]), [
+    { role: 'user', content: 'repeat this' },
+    { role: 'assistant', content: 'Same answer.' },
+    { role: 'user', content: 'repeat this' },
+  ])
+}
+console.log('Passed repeated prompt and answer persistence checks!')
+
+// Caller-owned persistence can be disabled without runtime writes.
+{
+  const { recordStore } = createTestWorkspace('chat-history-caller-owned')
+  const model = new ScriptedChatModel([{ text: 'Saved by caller.' }])
+  const runtime = new AgentRuntime({ chatId: 'chat-history-caller-owned', model, recordStore })
+  await runtime.run('caller-owned turn', { persistMessages: false })
+  assert.deepEqual(await recordStore.getMessages('chat-history-caller-owned'), [])
+}
+console.log('Passed caller-owned persistence check!')
 
 // Repeated historical prompts remain distinct, and history contributes to context limits.
 {

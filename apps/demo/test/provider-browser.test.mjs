@@ -109,6 +109,41 @@ try {
         contentType: 'text/event-stream',
         body: sseResponse([{ choices: [{ delta: { content: 'A completed response' } }] }]),
       })
+    } else if (chatRequestCount === 3 || chatRequestCount === 4) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: sseResponse([{ choices: [{ delta: { content: 'Same repeated answer.' } }] }]),
+      })
+    } else if (chatRequestCount === 5 || chatRequestCount === 7) {
+      const segment = chatRequestCount === 5 ? 'Repeated assistant segment' : 'Pre-tool no-final text'
+      const callId = chatRequestCount === 5 ? 'same-assistant-tool' : 'no-final-tool'
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: sseResponse([
+          { choices: [{ delta: {
+            content: segment,
+            tool_calls: [{ index: 0, id: callId, type: 'function', function: {
+              name: 'write_file',
+              arguments: JSON.stringify({ file_path: `${callId}.txt`, content: 'tool result' }),
+            } }],
+          } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+        ]),
+      })
+    } else if (chatRequestCount === 6) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: sseResponse([{ choices: [{ delta: { content: 'Repeated assistant segment' } }] }]),
+      })
+    } else if (chatRequestCount === 8) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: sseResponse([{ choices: [{ delta: {}, finish_reason: 'stop' }] }]),
+      })
     } else {
       await deleteResponseGate
       try {
@@ -156,6 +191,43 @@ try {
   await chatPage.getByText('a-result.txt', { exact: true }).waitFor()
   await welcomeChat.click()
   assert.equal(await chatPage.getByText('A completed response', { exact: true }).count(), 1)
+
+  const runPrompt = async prompt => {
+    await chatPage.getByLabel('Agent prompt input').fill(prompt)
+    await chatPage.getByRole('button', { name: 'Send message to agent' }).click()
+    await chatPage.waitForFunction(() => {
+      const composer = document.querySelector('textarea[aria-label="Agent prompt input"]')
+      return composer && !composer.disabled
+    }, null, { timeout: 30_000 })
+  }
+  await runPrompt('repeat prompt')
+  await runPrompt('repeat prompt')
+  assert.equal(await chatPage.getByText('repeat prompt', { exact: true }).count(), 2)
+  assert.equal(await chatPage.getByText('Same repeated answer.', { exact: true }).count(), 2)
+
+  await runPrompt('identical assistant segments')
+  assert.equal(await chatPage.getByText('Repeated assistant segment', { exact: true }).count(), 2)
+  await runPrompt('tool turn without a final response')
+  assert.equal(await chatPage.getByText('Pre-tool no-final text', { exact: true }).count(), 1)
+
+  await chatPage.reload()
+  await chatPage.locator('[role="button"]').filter({ hasText: 'Welcome Analysis' }).click()
+  await chatPage.getByText('A completed response', { exact: true }).waitFor()
+  assert.equal(await chatPage.getByText('repeat prompt', { exact: true }).count(), 2)
+  assert.equal(await chatPage.getByText('Same repeated answer.', { exact: true }).count(), 2)
+  assert.equal(await chatPage.getByText('Repeated assistant segment', { exact: true }).count(), 2)
+  assert.equal(await chatPage.getByText('Pre-tool no-final text', { exact: true }).count(), 1)
+
+  const [chatDownload] = await Promise.all([
+    chatPage.waitForEvent('download'),
+    chatPage.getByRole('button', { name: 'Export Welcome Analysis', exact: true }).click(),
+  ])
+  const archivePath = await chatDownload.path()
+  const exportedChat = JSON.parse(await readFile(archivePath, 'utf8'))
+  assert.equal(exportedChat.messages.filter(message => message.content === 'repeat prompt').length, 2)
+  assert.equal(exportedChat.messages.filter(message => message.content === 'Same repeated answer.').length, 2)
+  assert.equal(exportedChat.messages.filter(message => message.content === 'Repeated assistant segment').length, 2)
+  assert.equal(exportedChat.messages.filter(message => message.content === 'Pre-tool no-final text').length, 1)
 
   await chatPage.getByLabel('Agent prompt input').fill('Delete chat while running')
   const deleteRequestSeen = chatPage.waitForRequest(request => request.url().endsWith('/chat/completions'), { timeout: 20_000 })

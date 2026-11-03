@@ -51,37 +51,13 @@ export function ConversationView({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, activeRun?.streamingText, toolCalls.length])
 
-  // Build a unified chronological timeline without duplicate messages
+  // Build a unified chronological timeline. Message IDs represent turns, so
+  // repeated text from different messages remains visible.
   const timelineItems = useMemo<TimelineItem[]>(() => {
     const items: TimelineItem[] = []
 
-    // 1. Process messages and deduplicate
-    const processedMessages: ChatMessageRecord[] = []
+    // 1. Process every stored message independently
     for (const msg of messages) {
-      const content = (msg.content || '').trim()
-      // Skip if an identical message from the same role already exists
-      const isDuplicate = processedMessages.some(
-        p => p.role === msg.role && (p.content || '').trim() === content,
-      )
-      if (isDuplicate) continue
-
-      // Skip concatenated composite message if individual turn messages are already present
-      if (msg.role === 'assistant' && content.includes('\n\n')) {
-        const parts = content.split(/\n\s*\n/).map(p => p.trim())
-        const allPartsExist =
-          parts.length > 1 &&
-          parts.every(part =>
-            processedMessages.some(
-              p => p.role === 'assistant' && (p.content || '').trim() === part,
-            ),
-          )
-        if (allPartsExist) continue
-      }
-
-      processedMessages.push(msg)
-    }
-
-    for (const msg of processedMessages) {
       items.push({
         type: 'message',
         id: msg.id,
@@ -103,24 +79,7 @@ export function ConversationView({
     // 3. Sort chronologically
     items.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 
-    // 4. Deduplicate any consecutive identical messages
-    const deduplicated: TimelineItem[] = []
-    for (const item of items) {
-      if (item.type === 'message') {
-        const last = deduplicated[deduplicated.length - 1]
-        if (
-          last &&
-          last.type === 'message' &&
-          last.message.role === item.message.role &&
-          (last.message.content || '').trim() === (item.message.content || '').trim()
-        ) {
-          continue
-        }
-      }
-      deduplicated.push(item)
-    }
-
-    return deduplicated
+    return items
   }, [messages, toolCalls])
 
   return (
