@@ -1,149 +1,367 @@
-# Browser agents
+# Browser Agents
 
-Status: MVP implementation verified on desktop Google Chrome.  
-Orchestration, planning, file tools, and sandboxed Python code run inside the browser.  
-Model access connects directly from the browser by default, with an optional local relay.
+In-browser AI agent runtime and chat application where orchestration, multi-step planning, workspace file operations, and sandboxed Python data science run entirely client-side. Remote LLM connectivity connects directly from the browser or routes through an optional origin-verified local relay.
 
 ## Overview
 
-Browser agents is an in-browser agent runtime and chat application. The browser directly owns the orchestration loop, tool execution, persistent workspace storage, and execution history. Python data analysis and visualization run locally in the browser via Pyodide in a zero-network sandbox. Remote LLMs are reached directly from the browser or through an optional origin-verified relay. API keys stay in memory unless you opt into saving them in browser local storage. Generated Python cannot access either.
+Browser Agents executes the complete Deep Agents cognitive loop directly in the user's browser. Rather than relying on remote containers or server-side runners for tool execution, the client browser maintains planning state, coordinates tool calls, manages file artifacts, and executes Python data analysis locally using Pyodide WebAssembly.
 
-For detailed test evidence and benchmarks, refer to the [MVP validation report](docs/mvp-validation.md).
+Python runs inside a dedicated Web Worker nested within an opaque-origin sandbox iframe protected by a strict Content Security Policy (CSP). Model credentials remain strictly isolated from generated scripts and session exports. Storage relies on the Origin Private File System (OPFS) for files and IndexedDB for session history, providing persistent, offline-capable workspace state.
 
-## Core capabilities
+## Architecture Overview
 
-- Browser orchestration: Runs the Deep Agents loop in client-side TypeScript, maintaining plan and task state.
-- Automated Python execution: Sandboxed Pyodide execution preloaded with NumPy, pandas, and matplotlib.
-- Zero network leakage: Generated Python and JavaScript cannot access network sockets, HTTP, or browser credentials.
-- Isolated workspace storage: Files stored in Origin Private File System (OPFS) and records in IndexedDB per chat session.
-- Direct connections and optional relay: OpenAI-compatible endpoints with opt-in browser key storage; relay mode adds origin checks.
-- File staging and previews: Upload files, inspect data, download artifacts, and preview charts directly in the chat UI.
-- Cancellation and limits: Immediate cancellation of long-running or infinite code loops and bounded execution steps.
+The system is organized into a modular monorepo consisting of three client packages, a React demo application, and an optional FastAPI model relay.
 
-## Repository structure
+- User Interface (`apps/demo`): React 19 single-page application built with Vite, Tailwind CSS, and Lucide icons. Renders conversational turns, live execution plans, tool call statuses, file previews, and rendered charts.
+- Agent Runtime (`packages/runtime`): Implements `AgentRuntime`, Deep Agents browser adapter, LangChain chat model adapters (`OpenAIChatModel`, `RelayChatModel`, `ScriptedChatModel`), event bus, tool call dispatch, and step limits.
+- Python Sandbox (`packages/python`): Implements `PythonSessionManagerImpl` and `PythonSessionImpl`. Hosts Pyodide in a zero-network Web Worker spawned from an opaque-origin iframe (`about:blank` with `sandbox="allow-scripts"`).
+- Storage Layer (`packages/workspace`): Implements `WorkspaceManager` and `ChatWorkspace` using OPFS for binary and text files, IndexedDB for chat records, tab lock management via the Web Locks API, and staging diff calculations.
+- Model Relay (`backend`): Optional FastAPI service handling origin verification, session management, and upstream model streaming for endpoints that restrict cross-origin browser requests.
 
-- `packages/workspace`: File storage (OPFS), record stores (IndexedDB), path validation, and atomic staging.
-- `packages/python`: Sandboxed Pyodide execution within an opaque-origin iframe and Web Worker.
-- `packages/runtime`: Deep Agents browser adapter, relay client, LangChain chat model integration, and event bus.
-- `apps/demo`: Modern React UI built with Vite, Tailwind CSS, Lucide icons, and sanitized markdown rendering.
-- `backend`: FastAPI model relay service handling origin validation, session management, and upstream model streaming.
+```mermaid
+flowchart TD
+    subgraph Browser ["Web Browser Context (Chrome / Chromium)"]
+        subgraph UI ["User Interface (apps/demo)"]
+            ChatUI["Chat & Plan Interface"]
+            FilesUI["Workspace Files & Previews"]
+            SettingsUI["Provider & Key Settings"]
+        end
 
-## Getting started
+        subgraph Runtime ["Agent Runtime (@browser-agents/runtime)"]
+            AgentLoop["AgentRuntime (Deep Agents Loop)"]
+            EventBus["AgentEventEmitter"]
+            ToolBoundary["Tool Execution Boundary"]
+            DirectClient["DirectClient (Direct Browser CORS)"]
+            RelayClient["RelayClient (Origin-Validated)"]
+        end
+
+        subgraph Sandbox ["Python Sandbox (@browser-agents/python)"]
+            IFrame["Opaque Iframe (sandbox='allow-scripts')"]
+            Worker["Web Worker (Zero-Network CSP)"]
+            Pyodide["Pyodide WASM (NumPy, pandas, matplotlib)"]
+            IFrame --> Worker --> Pyodide
+        end
+
+        subgraph Storage ["Workspace Storage (@browser-agents/workspace)"]
+            OPFS["Origin Private File System (OPFS)"]
+            IDB["IndexedDB (Messages, Plans, Runs)"]
+            Staging["StagingManager & TabLockManager"]
+        end
+
+        UI --> Runtime
+        AgentLoop --> ToolBoundary
+        ToolBoundary -->|Staged File Sync| Sandbox
+        ToolBoundary -->|File Operations| Storage
+        AgentLoop --> EventBus
+        EventBus --> UI
+    end
+
+    subgraph External ["Network & Backend Boundaries"]
+        DirectAPI["Remote LLM Endpoint (CORS Enabled)"]
+        subgraph RelayService ["Model Relay (backend - FastAPI)"]
+            RelayApp["FastAPI Relay Service"]
+            OriginCheck["Origin Validation & Auth Token"]
+            UpstreamStream["Streaming Client (httpx)"]
+            RelayApp --> OriginCheck --> UpstreamStream
+        end
+        RemoteLLM["Remote LLM Endpoint (CORS Blocked)"]
+    end
+
+    DirectClient -->|Direct HTTPS / SSE| DirectAPI
+    RelayClient -->|Origin-Verified HTTP / SSE| RelayApp
+    UpstreamStream -->|Upstream HTTPS| RemoteLLM
+```
+
+## Key Features
+
+- Client-side agent orchestration: LangChain and Deep Agents execution loop executes entirely within browser TypeScript, maintaining plan and task state.
+- Sandboxed Python data analysis: Isolated Pyodide environment preloaded with NumPy, pandas, and matplotlib for data wrangling and chart generation.
+- Zero network leakage: Python Web Worker runs under CSP `connect-src blob: data:`, blocking socket, HTTP, fetch, and credential access.
+- Flexible model connectivity: Connect directly to OpenAI-compatible endpoints using browser fetch or route through the local relay when CORS is restricted.
+- Persistent workspace storage: Origin Private File System (OPFS) stores files, while IndexedDB records conversational history, plans, and tool traces.
+- Atomic file staging: Changes executed by Python scripts are staged, validated, and committed to storage atomically.
+- Execution boundaries: Bounded step limits, execution timeouts, output truncations, and immediate cancellation of runaway loops.
+- File staging and previewing: Upload local files, inspect CSV/JSON data, download generated artifacts, and view rendered Matplotlib plots directly in chat.
+
+## Tech Stack
+
+| Layer            | Technology                           | Details                                                    |
+| ---------------- | ------------------------------------ | ---------------------------------------------------------- |
+| Frontend UI      | React 19, TypeScript, Vite           | Tailwind CSS, Lucide React, Markdown and chart renderers   |
+| Agent Runtime    | Deep Agents, LangChain, LangGraph    | Browser adapter, tool boundaries, streaming event emitters |
+| Python Runtime   | Pyodide (WASM)                       | Python 3.12+ in Web Worker, NumPy, pandas, matplotlib      |
+| Storage Layer    | OPFS & IndexedDB                     | Web Locks API, Web Crypto API (SHA-256), atomic staging    |
+| Optional Relay   | Python 3.11+, FastAPI, Uvicorn       | Pydantic v2, HTTPX streaming, origin verification          |
+| Monorepo & Build | pnpm workspaces, TypeScript          | Project references (`tsc -b`), Docker Compose, Makefile    |
+| Test Frameworks  | Playwright, Node Test Runner, Pytest | End-to-end browser tests, unit suites, Black formatter     |
+
+## Project Structure
+
+```text
+.
+├── apps/
+│   └── demo/                    # React 19 + Vite browser application
+│       ├── src/
+│       │   ├── components/      # Conversation, composer, files, modals
+│       │   ├── lib/             # Preferences, sanitization helpers
+│       │   ├── App.tsx          # Main chat application controller
+│       │   └── main.tsx         # Application entry point
+│       └── test/                # Playwright and workflow test suites
+├── backend/                     # Optional FastAPI model relay service
+│   ├── src/
+│   │   └── relay/               # Origin validation, session store, upstream client
+│   ├── tests/                   # Pytest test suite
+│   └── pyproject.toml           # Python package specification
+├── packages/
+│   ├── python/                  # Sandboxed Pyodide execution manager
+│   │   ├── src/                 # Worker code, security filters, session manager
+│   │   └── test/                # Protocol and browser isolation tests
+│   ├── runtime/                 # Deep Agents browser runtime and model adapters
+│   │   ├── src/                 # Direct client, relay client, model adapters, events
+│   │   └── test/                # Runtime and node context tests
+│   └── workspace/               # In-browser storage and file staging
+│       ├── src/                 # OPFS file store, IndexedDB records, path validation
+│       └── test/                # Storage, concurrency, and staging tests
+├── docs/                        # Architecture decisions and validation reports
+├── scripts/                     # Endpoint verification and utility scripts
+├── Makefile                     # Developer workflow targets
+└── pnpm-workspace.yaml          # Workspace package layout
+```
+
+## Logic Flows
+
+The following sequence diagram illustrates an execution turn when a user requests data analysis requiring Python execution and workspace artifact generation:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User
+    participant UI as Chat Demo UI
+    participant Runtime as AgentRuntime
+    participant LLM as Model (Direct / Relay)
+    participant Python as Pyodide Worker
+    participant Storage as Workspace (OPFS/IDB)
+
+    User->>UI: Submit prompt ("Analyze sales.csv and plot trend")
+    UI->>Runtime: run({ input, messages })
+    Runtime->>Storage: Load session files and history
+    Runtime->>LLM: Stream prompt and available tools
+    LLM-->>Runtime: Plan update & execute_python tool call
+    Runtime->>UI: Emit AgentPlanUpdate & AgentToolStart
+    UI-->>User: Render live plan and active tool card
+    Runtime->>Storage: Stage workspace files into memory
+    Runtime->>Python: postMessage(run_code, staged_files)
+    Note over Python: Execute code in isolated Pyodide<br/>Generate plot.png in memory
+    Python-->>Runtime: Execution result (stdout, stderr, modified files)
+    Runtime->>Storage: Commit new artifacts (plot.png) to OPFS
+    Runtime->>UI: Emit AgentToolResult (output, files)
+    Runtime->>LLM: Stream tool output back to model
+    LLM-->>Runtime: Final response text
+    Runtime->>UI: Emit AgentTextDelta & AgentRunComplete
+    Runtime->>Storage: Save chat message and run record to IndexedDB
+    UI-->>User: Display markdown response and image preview
+```
+
+## Security and Isolation Architecture
+
+The browser runtime enforces multi-layered defense boundaries:
+
+- Opaque frame isolation: Python executes inside a Web Worker spawned from an opaque-origin iframe (`sandbox="allow-scripts"`).
+- Strict Content Security Policy: `default-src 'none'; script-src 'unsafe-eval' blob:; connect-src blob: data:`. Network requests from Python or Worker JavaScript are blocked by the browser engine.
+- Credential boundary: API keys remain in memory by default. If the user opts into browser storage, keys are stored in `localStorage` under the origin and never injected into prompts, chat logs, or the Python sandbox.
+- Path traversal protection: Virtual workspace file paths are strictly validated against directory traversal (`..`, absolute paths outside `/`, null bytes, and non-whitelisted characters).
+- Origin validation: The optional FastAPI relay strictly validates the HTTP `Origin` header against configured trusted frontend origins and uses ephemeral session tokens.
+- Output validation: File count, individual file sizes, and aggregate payloads returned from the sandbox are bounded by explicit byte limits before committing to OPFS.
+
+## Installation and Setup
 
 ### Prerequisites
 
-- Node.js 22+
-- pnpm 11+
-- Python 3.11+ and uv only if using the optional relay
+- Node.js 22 or newer
+- pnpm 11 or newer
+- Google Chrome or Chromium desktop browser (for OPFS and Web Worker isolation)
+- Python 3.11+ and uv (required only if running the optional model relay)
 
 ### Installation
 
-Install browser application dependencies:
+Install all monorepo dependencies:
 
 ```sh
 make setup
 ```
 
-### Running development servers
+To install the optional relay backend dependencies:
 
-Start the frontend on port 5173 without a backend:
+```sh
+pnpm setup:relay
+```
+
+### Running Development Servers
+
+Start the frontend development server on `http://127.0.0.1:5173`:
 
 ```sh
 make dev
 ```
 
-Alternatively, run services in the background:
+To run services in the background using managed PID files:
 
 ```sh
-make start        # Starts frontend
-make status       # Check status and running PIDs
-make stop         # Stop all services
+make start        # Start frontend demo in background
+make status       # Inspect process status and PIDs
+make stop         # Stop background processes
 ```
 
-Visit `http://127.0.0.1:5173` in desktop Chrome or Chromium.
-
-In settings, choose **Direct from browser**, enter your endpoint and API key, then discover models or enter a model ID manually and save. The endpoint must allow requests from the frontend origin via CORS. Network/CORS errors offer guidance to choose **Local relay** instead.
-
-Enable **Remember API key on this browser** to reconnect after reload without re-entering credentials. Keys are saved unencrypted in this site's local storage. Uncheck the option and save to remove the saved key. Changing the endpoint clears the key field to avoid sending the previous provider's key to a different host. Keys never enter chat exports or the Python sandbox.
-
-For endpoints requiring a relay:
+To run both the frontend and the optional model relay concurrently:
 
 ```sh
-pnpm setup:relay
-make start-relay
-# Or run both services in the foreground:
 pnpm dev:with-relay
 ```
 
-Select **Local relay** in settings. No automatic fallback sends requests through a different route.
+Or start the relay as a background daemon:
 
+```sh
+make start-relay
+make logs-relay   # Tail relay server logs
+```
 
-### Quality and testing
+### Quality and Testing
 
-For the full checks, install the optional backend test dependencies with `pnpm setup:relay`, then run:
+Execute the complete quality check suite (formatting check, TypeScript compilation, and all unit tests):
 
 ```sh
 make check
 ```
 
-Or run individual suites:
+Or run targeted test suites independently:
 
 ```sh
+make typecheck            # Run TypeScript compiler checks across all packages
 make format-check         # Verify Python formatting with black
-make typecheck            # Check TypeScript packages and demo app
-make test-backend         # Run FastAPI relay pytest suite
-make test-workspace       # Run workspace storage tests
+make test-workspace       # Run OPFS and IndexedDB storage tests
 make test-python          # Run Python protocol and staging tests
 make test-python-browser  # Run Playwright browser isolation tests
 make test-runtime         # Run agent runtime test suite
 make test-demo            # Run chat demo workflow test suite
-pnpm test:demo:browser    # Chrome settings verification after make build
+make test-backend         # Run FastAPI relay pytest suite
 ```
 
-### Production build
+### Production Build
 
-Compile and bundle all TypeScript packages and the demo frontend application:
+Compile TypeScript packages and bundle the production Vite application:
 
 ```sh
 make build
 ```
 
-### Containerized execution
+### Containerized Execution
 
-Build and run both the relay and frontend using Docker:
+Run the application stack using Docker Compose:
 
 ```sh
 make docker-build
-make docker-up                     # Frontend only
-docker compose --profile relay up -d # Include optional relay
+make docker-up                     # Launch frontend container
+docker compose --profile relay up -d # Launch with optional relay service
+make docker-down                   # Stop container stack
 ```
 
-To stop containers:
+## Usage Examples
 
-```sh
-make docker-down
+### Programmatic Agent Execution
+
+Initialize an in-memory workspace and run an agent task using the direct client:
+
+```ts
+import { ChatWorkspace, MemoryFileStore, MemoryRecordStore } from '@browser-agents/workspace'
+import { AgentRuntime, DirectClient, OpenAIChatModel, SessionPythonExecutor } from '@browser-agents/runtime'
+import { PythonSessionManagerImpl } from '@browser-agents/python'
+
+// Configure workspace storage
+const workspace = new ChatWorkspace({
+  chatId: 'session-01',
+  files: new MemoryFileStore(),
+  records: new MemoryRecordStore(),
+})
+
+// Configure direct model connection
+const client = new DirectClient({
+  baseUrl: 'https://api.openai.com/v1',
+  apiKey: 'your-api-key',
+})
+const model = new OpenAIChatModel({ client, model: 'gpt-4o' })
+
+// Configure sandboxed Python executor
+const pythonManager = new PythonSessionManagerImpl()
+const pythonSession = await pythonManager.getSession('session-01', { workspace })
+const pythonExecutor = new SessionPythonExecutor(pythonSession)
+
+// Instantiate and execute runtime
+const runtime = new AgentRuntime({
+  chatId: 'session-01',
+  model,
+  workspace,
+  pythonExecutor,
+})
+
+const result = await runtime.run({
+  input: 'Create a CSV file named data.csv containing 5 rows of random numbers, then calculate the mean.',
+})
+
+console.log('Agent status:', result.status)
+console.log('Steps executed:', result.steps)
 ```
 
-## Security and isolation architecture
+### Sandboxed Python Execution
 
-The browser runtime enforces strict boundaries:
+Execute Python scripts directly inside the Web Worker sandbox:
 
-- Opaque frame isolation: Python executes inside a Web Worker spawned from an opaque-origin iframe (`sandbox="allow-scripts"`).
-- Strict CSP: `default-src 'none'; script-src 'unsafe-eval' blob:; connect-src blob: data:`. Network requests from Python or JavaScript are blocked.
-- Credential boundary: API keys stay outside prompts and generated code. Browser persistence is opt-in; otherwise keys remain in memory.
-- Origin protection: The relay rejects requests from origins other than the configured frontend addresses.
-- File path validation: File tools restrict access strictly within the chat's workspace path root.
+```ts
+import { PythonSessionManagerImpl } from '@browser-agents/python'
 
-## Verified compatible models
+const manager = new PythonSessionManagerImpl()
+const session = await manager.getSession('analysis-chat')
 
-Models tested against the Deep Agents function-calling schema:
+await session.initialize()
 
-- `gpt-oss-120b`: Compatible. Generates valid nested arguments for planning and Python tools.
-- `gpt-oss-20b`: Compatible. Completes full multi-step planning and Python execution loops.
-- `gemma-4-26B-A4B-it`: Emits malformed escape tokens in tool call JSON; requires compliant model selection.
+const result = await session.execute(`
+import numpy as np
+import pandas as pd
 
-## Roadmap and future milestones
+df = pd.DataFrame({
+    'category': ['A', 'B', 'C', 'D'],
+    'value': np.random.randn(4)
+})
+print("DataFrame summary:")
+print(df.describe())
+`)
 
-- WebGPU local inference: Pluggable browser LLMs without contacting a model endpoint.
+console.log(result.stdout)
+```
+
+### Model Relay Configuration
+
+When connecting to endpoints that do not support browser CORS, register the provider through the local relay:
+
+```ts
+import { RelayClient, RelayChatModel } from '@browser-agents/runtime'
+
+const relay = new RelayClient('http://127.0.0.1:8765')
+await relay.createSession()
+
+const provider = await relay.registerProvider({
+  baseUrl: 'https://restricted-endpoint.example.com/v1',
+  apiKey: 'secret-key',
+})
+
+const model = new RelayChatModel({
+  client: relay,
+  providerId: provider.provider_id,
+  model: 'meta-llama/Llama-3.3-70B-Instruct',
+})
+```
+
+## Roadmap and Future Milestones
+
+- WebGPU local inference: Pluggable browser LLMs without contacting external model endpoints.
 - Subagents: Multi-agent coordination with hierarchical task execution.
 - Dynamic package wheels: Support for loading additional pure-Python wheels at runtime.
